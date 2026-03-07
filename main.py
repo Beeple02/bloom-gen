@@ -667,6 +667,27 @@ def api_report():
     html = build_public(ctx) if mode == "public" else build_private(ctx)
     return html, 200, {"Content-Type": "text/html"}
 
+@app.route("/debug")
+def debug():
+    """Shows raw Atlas data for debugging - remove in prod"""
+    try:
+        data = fetch_all()
+        ob = data.get("orderbook", {})
+        secs = data.get("securities", [])
+        hist_sample = {}
+        if isinstance(secs, list) and secs:
+            t = secs[0]["ticker"]
+            hist_sample[t] = data.get("history", {}).get(t, [])[:3]
+        return {
+            "orderbook_type": str(type(ob)),
+            "orderbook_keys": list(ob.keys())[:5] if isinstance(ob, dict) else str(ob)[:300],
+            "orderbook_sample": {k: v for k, v in list(ob.items())[:2]} if isinstance(ob, dict) else ob,
+            "securities_count": len(secs) if isinstance(secs, list) else 0,
+            "history_sample": hist_sample,
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
 @app.route("/health")
 def health():
     return {"status": "ok"}
