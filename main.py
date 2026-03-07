@@ -1,15 +1,15 @@
 import os
 import json
-import asyncio
+
 import httpx
 from flask import Flask, Response, render_template_string, stream_with_context
-import anthropic
+import google.generativeai as genai
 
 app = Flask(__name__)
 
 ATLAS_URL = os.environ.get("ATLAS_URL", "").rstrip("/")
 ATLAS_KEY = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # ─── Atlas Data Fetcher ────────────────────────────────────────────────────────
 
@@ -828,22 +828,21 @@ def generate():
             yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR fetching Atlas data: {e}</p>"
             return
 
-        # 2. Stream from Claude
+        # 2. Stream from Gemini
         try:
-            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                system_instruction=SYSTEM_PROMPT,
+            )
             user_prompt = build_user_prompt(atlas_data)
-
-            with client.messages.stream(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4096,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            ) as stream_obj:
-                for text in stream_obj.text_stream:
-                    yield text
+            response = model.generate_content(user_prompt, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
 
         except Exception as e:
-            yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR from Claude: {e}</p>"
+            yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR from Gemini: {e}</p>"
 
     return Response(stream_with_context(stream()), mimetype="text/plain")
 
