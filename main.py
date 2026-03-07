@@ -3,13 +3,13 @@ import json
 
 import httpx
 from flask import Flask, Response, render_template_string, stream_with_context
-import google.generativeai as genai
+from groq import Groq
 
 app = Flask(__name__)
 
 ATLAS_URL = os.environ.get("ATLAS_URL", "").rstrip("/")
 ATLAS_KEY = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # ─── Atlas Data Fetcher ────────────────────────────────────────────────────────
 
@@ -828,21 +828,26 @@ def generate():
             yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR fetching Atlas data: {e}</p>"
             return
 
-        # 2. Stream from Gemini
+        # 2. Stream from Groq
         try:
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
-                system_instruction=SYSTEM_PROMPT,
-            )
+            client = Groq(api_key=GROQ_API_KEY)
             user_prompt = build_user_prompt(atlas_data)
-            response = model.generate_content(user_prompt, stream=True)
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
+            stream = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=4096,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            for chunk in stream:
+                text = chunk.choices[0].delta.content
+                if text:
+                    yield text
 
         except Exception as e:
-            yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR from Gemini: {e}</p>"
+            yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR from Groq: {e}</p>"
 
     return Response(stream_with_context(stream()), mimetype="text/plain")
 
