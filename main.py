@@ -1,811 +1,510 @@
 import os
-import json
-
+from datetime import datetime, timezone
+from flask import Flask, render_template_string
 import httpx
-from flask import Flask, Response, render_template_string, stream_with_context
-from groq import Groq
 
 app = Flask(__name__)
 
 ATLAS_URL = os.environ.get("ATLAS_URL", "").rstrip("/")
 ATLAS_KEY = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# ─── Atlas Data Fetcher ────────────────────────────────────────────────────────
+# ─── Security Classification ──────────────────────────────────────────────────
 
-def atlas_headers():
-    return {"X-Atlas-Key": ATLAS_KEY}
+BONDS       = {"RNC-B", "VSP3"}
+ETFS        = {"CGF", "RNHC", "SRI"}
+COMMODITIES = {"NTR"}
 
-def fetch_atlas_data():
-    """Fetch all required Atlas endpoints and bundle into a dict."""
-    headers = atlas_headers()
+def classify(ticker):
+    if ticker in BONDS:        return "Bond"
+    if ticker in ETFS:         return "ETF"
+    if ticker in COMMODITIES:  return "Commodity"
+    return "Stock"
+
+# ─── Atlas Fetcher ────────────────────────────────────────────────────────────
+
+def atlas(path):
+    r = httpx.get(f"{ATLAS_URL}{path}", headers={"X-Atlas-Key": ATLAS_KEY}, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+def fetch_all():
     data = {}
-    tickers = []
+    data["securities"] = atlas("/securities?include_derived=true")
+    data["orderbook"]  = atlas("/orderbook")
 
-    with httpx.Client(timeout=15) as client:
-        # Core endpoints
-        endpoints = {
-            "securities": f"{ATLAS_URL}/securities?include_derived=true",
-            "orderbook":  f"{ATLAS_URL}/orderbook",
-            "summary":    f"{ATLAS_URL}/market/summary",
-            "derived":    f"{ATLAS_URL}/derived",
-        }
-        for key, url in endpoints.items():
-            try:
-                r = client.get(url, headers=headers)
-                r.raise_for_status()
-                data[key] = r.json()
-            except Exception as e:
-                data[key] = {"error": str(e)}
+    tickers = [s["ticker"] for s in data["securities"]] if isinstance(data["securities"], list) else []
 
-        # Extract tickers for per-security calls
-        secs = data.get("securities", [])
-        if isinstance(secs, list):
-            tickers = [s.get("ticker") or s.get("symbol") for s in secs if s.get("ticker") or s.get("symbol")]
-        elif isinstance(secs, dict) and "securities" in secs:
-            tickers = [s.get("ticker") or s.get("symbol") for s in secs["securities"] if s.get("ticker") or s.get("symbol")]
-
-        # History per ticker (limit to first 10 to stay snappy)
-        history = {}
-        shareholders = {}
-        for ticker in tickers[:10]:
-            try:
-                r = client.get(f"{ATLAS_URL}/history/{ticker}?days=7&limit=50", headers=headers)
-                r.raise_for_status()
-                history[ticker] = r.json()
-            except Exception as e:
-                history[ticker] = {"error": str(e)}
-            try:
-                r = client.get(f"{ATLAS_URL}/shareholders/{ticker}", headers=headers)
-                r.raise_for_status()
-                shareholders[ticker] = r.json()
-            except Exception as e:
-                shareholders[ticker] = {"error": str(e)}
-
-        data["history"] = history
-        data["shareholders"] = shareholders
-
+    history = {}
+    for t in tickers:
+        try:    history[t] = atlas(f"/history/{t}?days=7&limit=50")
+        except: history[t] = []
+    data["history"] = history
     return data
 
-# ─── Claude Prompt ────────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are the Bloomberg Labs Market Analyst for the DemocracyCraft Minecraft server economy.
-Bloomberg Labs is a prestigious fictional financial institution tracking the DemocracyCraft in-game market.
+def fmt(v, d=2):
+    if v is None: return None
+    try:    return round(float(v), d)
+    except: return None
 
-You receive live market JSON data from the Atlas Market API and produce a polished, self-contained HTML report snippet.
+def price_change(hist, current):
+    if not hist or not isinstance(hist, list) or current is None:
+        return None, None
+    prices = []
+    for e in hist:
+        if isinstance(e, dict):
+            p = e.get("price") or e.get("close") or e.get("market_price")
+            if p is not None: prices.append(float(p))
+    if not prices: return None, None
+    prev = prices[0]
+    if prev == 0: return None, None
+    chg_pct = round(((current - prev) / prev) * 100, 2)
+    return round(current - prev, 4), chg_pct
 
-OUTPUT RULES — READ CAREFULLY:
-- Output ONLY valid HTML. No markdown. No code fences. No explanation before or after.
-- No <html>, <head>, or <body> tags. No <!DOCTYPE>. Just the inner content.
-- All styles must be INLINE (style="..."). No <style> tags. No CSS classes.
-- Use IBM Plex Mono (font-family: 'IBM Plex Mono', monospace) for all numeric/data cells.
-- Use IBM Plex Sans (font-family: 'IBM Plex Sans', sans-serif) for prose/headings.
-- Color conventions: green #16a34a for positive/gains, red #dc2626 for negative/losses, #737373 for neutral/unchanged.
-- Background: white #ffffff. Section dividers: 1px solid #e5e7eb.
-- Tables: clean, dense, no outer border-radius. Header row bg #f9fafb, text #111827 bold.
+def compute_indices(securities):
+    buckets = {"Stock": [], "ETF": [], "Bond": [], "Commodity": [], "All": []}
+    for s in securities:
+        if s.get("hidden"): continue
+        p = s.get("market_price")
+        if p is None: continue
+        cat = classify(s["ticker"])
+        buckets[cat].append(float(p))
+        buckets["All"].append(float(p))
+    def avg(lst): return round(sum(lst)/len(lst), 4) if lst else None
+    return [
+        {"ticker": "B:COMP",  "name": "NER Composite",   "value": avg(buckets["All"]),       "desc": "All active securities"},
+        {"ticker": "B:STK",   "name": "NER Stocks",       "value": avg(buckets["Stock"]),     "desc": "Equity basket"},
+        {"ticker": "B:ETF",   "name": "NER Funds",        "value": avg(buckets["ETF"]),       "desc": "ETF & fund basket"},
+        {"ticker": "B:BOND",  "name": "NER Fixed Income", "value": avg(buckets["Bond"]),      "desc": "Bond basket"},
+        {"ticker": "B:CMDTY", "name": "NER Commodities",  "value": avg(buckets["Commodity"]), "desc": "Commodity basket"},
+    ]
 
-REPORT STRUCTURE — produce exactly these 5 sections in order:
+def process_sec(s, history):
+    t       = s["ticker"]
+    price   = fmt(s.get("market_price"))
+    derived = s.get("derived") or {}
+    chg, chg_pct = price_change(history.get(t, []), price)
+    cls = "up" if chg_pct and chg_pct > 0 else ("dn" if chg_pct and chg_pct < 0 else "flat")
+    return {
+        "ticker":   t,
+        "name":     s.get("full_name", t),
+        "price":    price if price is not None else "—",
+        "frozen":   bool(s.get("frozen")),
+        "shares":   f"{int(s['total_shares']):,}" if s.get("total_shares") else "—",
+        "vwap7":    fmt(derived.get("vwap_7d")),
+        "vol7":     fmt(derived.get("volatility_7d")),
+        "liq":      fmt(derived.get("liquidity_score")),
+        "imb":      fmt(derived.get("orderbook_imbalance"), 3),
+        "chg":      chg,
+        "chg_pct":  chg_pct,
+        "cls":      cls,
+    }
 
-1. MARKET SUMMARY
-   - One paragraph narrative (2-3 sentences) summarizing overall market conditions.
-   - Table: metric | value — key stats from /market/summary and /derived (total volume, active securities, market cap if available, avg spread, avg liquidity score, etc.)
-   - Flag if market appears frozen (zero volume, no recent trades).
+def process_ob(ticker, book, name_map):
+    bids, asks = [], []
+    if isinstance(book, dict):
+        for side, out in [(book.get("bids",[]), bids), (book.get("asks",[]), asks)]:
+            for entry in (side or [])[:4]:
+                if isinstance(entry, dict):
+                    p = entry.get("price") or entry.get("p")
+                    q = entry.get("quantity") or entry.get("qty") or entry.get("q") or entry.get("size")
+                    if p: out.append({"price": fmt(p), "qty": fmt(q, 0) or "?"})
+                elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                    out.append({"price": fmt(entry[0]), "qty": fmt(entry[1], 0)})
+    spread = spread_pct = None
+    if bids and asks:
+        bb, ba = bids[0]["price"], asks[0]["price"]
+        if bb and ba:
+            spread     = fmt(ba - bb)
+            spread_pct = fmt(((ba - bb) / bb) * 100) if bb else None
+    return {"ticker": ticker, "name": name_map.get(ticker, ticker),
+            "bids": bids, "asks": asks, "spread": spread, "spread_pct": spread_pct}
 
-2. TOP MOVERS
-   - One paragraph narrative (2-3 sentences) about standout securities.
-   - Table: Ticker | Price | Change % | Volume | VWAP | Volatility — sorted by absolute % change, top 8.
-   - Color the Change % cell green or red accordingly.
-   - Flag any security with spread > 20% or showing anomalous metrics.
-
-3. PRICE EVOLUTION TABLE
-   - One paragraph narrative about price trends over the past 7 days.
-   - Table: Ticker | Day-1 | Day-2 | Day-3 | Day-4 | Day-5 | Day-6 | Day-7 (most recent rightmost) — use closing prices from /history data.
-   - Use green/red cell background (#dcfce7 / #fee2e2) to show direction vs prior day.
-   - If history is missing for a ticker, show "—".
-
-4. ORDERBOOK SNAPSHOT
-   - One paragraph narrative about liquidity and order depth.
-   - Table: Ticker | Best Bid | Best Ask | Spread | Bid Depth | Ask Depth | Imbalance.
-   - Flag empty orderbooks or extreme spreads (>25%).
-   - Imbalance = (bid depth - ask depth) / (bid depth + ask depth), show as percentage, color accordingly.
-
-5. SHAREHOLDER ACTIVITY
-   - One paragraph narrative about ownership concentration.
-   - Table: Ticker | Top Holder | % Owned | #Shareholders | HHI (if computable) — summarize from /shareholders data.
-   - Note any single holder with >50% (dominant position) in red.
-
-ANALYST NOTE (after all sections):
-- A grey-background box (#f3f4f6), padding 12px, with bold header "ANALYST NOTE".
-- 2-3 bullet observations about risks, opportunities, or anomalies you noticed.
-- Keep it sharp, professional, and specific to the data you received.
-
-STYLE GUIDANCE:
-- Section headers: font-size 11px, letter-spacing 0.1em, text-transform uppercase, color #6b7280, border-bottom 2px solid #111827, margin-bottom 8px.
-- Each section wrapped in a div with margin-bottom 32px.
-- Tables: width 100%, border-collapse collapse. TD/TH padding: 6px 10px. Alternating row bg: #ffffff / #f9fafb.
-- Narrative paragraphs: font-size 13px, line-height 1.6, color #374151, margin-bottom 12px.
-- Numbers in table cells: font-family IBM Plex Mono, font-size 12px.
-- Be concise but precise. This report will be screenshotted and posted to Discord.
-"""
-
-def build_user_prompt(atlas_data: dict) -> str:
-    return (
-        "Here is the live Atlas market data. Generate the full Bloomberg Labs Daily Report now.\n\n"
-        + json.dumps(atlas_data, indent=2, default=str)
-    )
-
-# ─── HTML Templates ───────────────────────────────────────────────────────────
+# ─── Templates ────────────────────────────────────────────────────────────────
 
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bloomberg Labs — Report Generator</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<title>Bloomberg Labs</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --bg: #0a0a0a;
-    --surface: #111111;
-    --border: #1e1e1e;
-    --border-bright: #2a2a2a;
-    --text: #e5e5e5;
-    --text-muted: #737373;
-    --text-dim: #404040;
-    --green: #16a34a;
-    --green-dim: #14532d;
-    --red: #dc2626;
-    --amber: #d97706;
-    --accent: #e5e5e5;
-  }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'IBM Plex Sans', sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 20px;
-  }
-
-  .terminal-frame {
-    width: 100%;
-    max-width: 680px;
-  }
-
-  /* Header */
-  .header {
-    margin-bottom: 48px;
-  }
-  .header-eyebrow {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 12px;
-  }
-  .header-logo {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-  .header-logo .b {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 32px;
-    font-weight: 600;
-    color: var(--accent);
-    letter-spacing: -0.02em;
-  }
-  .header-logo .sep {
-    width: 2px;
-    height: 28px;
-    background: var(--border-bright);
-    display: inline-block;
-    margin: 0 4px;
-    vertical-align: middle;
-  }
-  .header-logo .sub {
-    font-size: 13px;
-    font-weight: 300;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-  }
-  .header-desc {
-    font-size: 12px;
-    color: var(--text-dim);
-    font-family: 'IBM Plex Mono', monospace;
-    margin-top: 6px;
-  }
-
-  /* Status bar */
-  .status-bar {
-    display: flex;
-    gap: 24px;
-    padding: 12px 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 40px;
-  }
-  .status-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px var(--green);
-    animation: pulse 2s infinite;
-  }
-  .status-dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  /* Main action area */
-  .action-area {
-    padding: 32px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    position: relative;
-    overflow: hidden;
-  }
-  .action-area::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #333, transparent);
-  }
-
-  .action-label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 20px;
-  }
-
-  .endpoints-list {
-    margin-bottom: 28px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .endpoint {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-  .endpoint-method {
-    color: var(--green);
-    font-weight: 600;
-    min-width: 28px;
-  }
-  .endpoint-path { color: var(--text-muted); }
-
-  .generate-btn {
-    width: 100%;
-    padding: 14px 24px;
-    background: var(--accent);
-    color: #0a0a0a;
-    border: none;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    position: relative;
-    overflow: hidden;
-  }
-  .generate-btn:hover:not(:disabled) {
-    background: #ffffff;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 20px rgba(229,229,229,0.15);
-  }
-  .generate-btn:active:not(:disabled) { transform: translateY(0); }
-  .generate-btn:disabled {
-    background: var(--border-bright);
-    color: var(--text-dim);
-    cursor: not-allowed;
-  }
-
-  /* Loading state */
-  .loading-area {
-    display: none;
-    margin-top: 24px;
-  }
-  .loading-area.visible { display: block; }
-
-  .progress-label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-  }
-  .progress-bar-track {
-    height: 2px;
-    background: var(--border);
-    width: 100%;
-    overflow: hidden;
-  }
-  .progress-bar-fill {
-    height: 100%;
-    background: var(--green);
-    width: 0%;
-    transition: width 0.3s ease;
-    box-shadow: 0 0 8px var(--green);
-  }
-
-  .log-area {
-    margin-top: 16px;
-    max-height: 120px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .log-line {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    color: var(--text-dim);
-    display: flex;
-    gap: 10px;
-  }
-  .log-ts { color: var(--text-dim); min-width: 60px; }
-  .log-msg { color: var(--text-muted); }
-  .log-msg.ok { color: var(--green); }
-  .log-msg.err { color: var(--red); }
-  .log-msg.info { color: var(--amber); }
-
-  /* Footer */
-  .footer {
-    margin-top: 32px;
-    display: flex;
-    justify-content: space-between;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    color: var(--text-dim);
-    letter-spacing: 0.05em;
-  }
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 20px}
+.w{width:100%;max-width:520px}
+.ey{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#404040;margin-bottom:12px}
+.lo{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#fff;margin-bottom:4px}
+.tg{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#444;margin-bottom:36px}
+.card{background:#141414;border:1px solid #1e1e1e;padding:28px}
+.cl{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#444;margin-bottom:18px}
+.btn{display:block;width:100%;padding:13px;background:#fff;color:#000;border:none;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:.05em;cursor:pointer;transition:background .15s}
+.btn:hover{background:#ccc}
+.btn:disabled{background:#1e1e1e;color:#444;cursor:not-allowed}
+.st{display:none;margin-top:20px}
+.st.on{display:block}
+.bar{height:1px;background:#1e1e1e;margin-bottom:12px;overflow:hidden}
+.barf{height:100%;background:#16a34a;width:0;transition:width .3s ease;box-shadow:0 0 6px #16a34a}
+.lg{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555;display:flex;gap:8px;padding:2px 0}
+.lg .ts{color:#333;min-width:52px}
+.lg .ok{color:#16a34a}
+.lg .er{color:#dc2626}
+.lg .hi{color:#d97706}
+.ft{margin-top:24px;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}
 </style>
 </head>
 <body>
-<div class="terminal-frame">
-
-  <div class="header">
-    <div class="header-eyebrow">DemocracyCraft · Financial Intelligence Platform</div>
-    <div class="header-logo">
-      <span class="b">BLOOMBERG LABS</span>
-      <span class="sep"></span>
-      <span class="sub">Market Report Generator</span>
-    </div>
-    <div class="header-desc">// Atlas API → Claude Sonnet 4 → Styled Report</div>
-  </div>
-
-  <div class="status-bar">
-    <div class="status-item">
-      <span class="status-dot"></span>
-      <span>ATLAS CONNECTED</span>
-    </div>
-    <div class="status-item">
-      <span class="status-dot"></span>
-      <span>CLAUDE ONLINE</span>
-    </div>
-    <div class="status-item" style="margin-left:auto">
-      <span id="clock" style="color:#404040"></span>
+<div class="w">
+  <div class="ey">DemocracyCraft · NER Exchange</div>
+  <div class="lo">BLOOMBERG LABS</div>
+  <div class="tg">// Daily Market Report Generator</div>
+  <div class="card">
+    <div class="cl">// Generate Report</div>
+    <button class="btn" id="btn" onclick="go()">▶ GENERATE REPORT</button>
+    <div class="st" id="st">
+      <div class="bar"><div class="barf" id="bf"></div></div>
+      <div id="log"></div>
     </div>
   </div>
-
-  <div class="action-area">
-    <div class="action-label">// Data Sources · 6 endpoints</div>
-    <div class="endpoints-list">
-      <div class="endpoint"><span class="endpoint-method">GET</span><span class="endpoint-path">/securities?include_derived=true</span></div>
-      <div class="endpoint"><span class="endpoint-method">GET</span><span class="endpoint-path">/orderbook</span></div>
-      <div class="endpoint"><span class="endpoint-method">GET</span><span class="endpoint-path">/market/summary</span></div>
-      <div class="endpoint"><span class="endpoint-method">GET</span><span class="endpoint-path">/derived</span></div>
-      <div class="endpoint"><span class="endpoint-method">GET</span><span class="endpoint-path">/history/{ticker}?days=7&limit=50</span></div>
-      <div class="endpoint"><span class="endpoint-method">GET</span><span class="endpoint-path">/shareholders/{ticker}</span></div>
-    </div>
-
-    <button class="generate-btn" id="generateBtn" onclick="startGeneration()">
-      ▶ GENERATE DAILY REPORT
-    </button>
-
-    <div class="loading-area" id="loadingArea">
-      <div class="progress-label">
-        <span id="progressLabel">Fetching market data...</span>
-        <span id="progressPct">0%</span>
-      </div>
-      <div class="progress-bar-track">
-        <div class="progress-bar-fill" id="progressFill"></div>
-      </div>
-      <div class="log-area" id="logArea"></div>
-    </div>
-  </div>
-
-  <div class="footer">
-    <span>Bloomberg Labs · DemocracyCraft</span>
-    <span id="build">v1.0 · CONFIDENTIAL</span>
-  </div>
-
+  <div class="ft"><span>Bloomberg Labs · DemocracyCraft</span><span id="clk"></span></div>
 </div>
-
 <script>
-  // Clock
-  function updateClock() {
-    const now = new Date();
-    document.getElementById('clock').textContent = now.toUTCString().replace(' GMT','') + ' UTC';
-  }
-  setInterval(updateClock, 1000);
-  updateClock();
-
-  function log(msg, cls='') {
-    const area = document.getElementById('logArea');
-    const now = new Date();
-    const ts = now.toTimeString().slice(0,8);
-    const line = document.createElement('div');
-    line.className = 'log-line';
-    line.innerHTML = `<span class="log-ts">${ts}</span><span class="log-msg ${cls}">${msg}</span>`;
-    area.appendChild(line);
-    area.scrollTop = area.scrollHeight;
-  }
-
-  function setProgress(pct, label) {
-    document.getElementById('progressFill').style.width = pct + '%';
-    document.getElementById('progressPct').textContent = pct + '%';
-    if (label) document.getElementById('progressLabel').textContent = label;
-  }
-
-  async function startGeneration() {
-    const btn = document.getElementById('generateBtn');
-    btn.disabled = true;
-    btn.textContent = '⏳ GENERATING...';
-    document.getElementById('loadingArea').classList.add('visible');
-    document.getElementById('logArea').innerHTML = '';
-
-    log('Initiating report generation sequence...', 'info');
-    setProgress(5, 'Connecting to Atlas API...');
-
-    try {
-      log('Fetching market data from Atlas...', 'info');
-      setProgress(10, 'Fetching market data...');
-
-      // Open a new window for the report early
-      const reportWin = window.open('/report', '_blank');
-
-      const response = await fetch('/api/generate', { method: 'POST' });
-
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error('Server error: ' + err);
-      }
-
-      log('Atlas data fetched successfully', 'ok');
-      setProgress(30, 'Sending to Claude Sonnet 4...');
-      log('Streaming report from Claude...', 'info');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let chunkCount = 0;
-
-      // We'll write to the report window
-      if (reportWin) {
-        reportWin.document.open();
-        reportWin.document.write(getReportShell(''));
-        reportWin.document.close();
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-        chunkCount++;
-
-        // Update progress
-        const pct = Math.min(30 + chunkCount * 3, 95);
-        setProgress(pct, 'Streaming report...');
-
-        if (chunkCount % 5 === 0) log(`Received ${buffer.length} chars...`);
-
-        // Update report window with current buffer
-        if (reportWin && !reportWin.closed) {
-          try {
-            const contentDiv = reportWin.document.getElementById('report-content');
-            if (contentDiv) contentDiv.innerHTML = buffer;
-          } catch(e) {}
-        }
-      }
-
-      setProgress(100, 'Report complete');
-      log('Report generation complete ✓', 'ok');
-
-      // Store in sessionStorage for report page
-      sessionStorage.setItem('reportHTML', buffer);
-
-      // Final update to report window
-      if (reportWin && !reportWin.closed) {
-        try {
-          const contentDiv = reportWin.document.getElementById('report-content');
-          if (contentDiv) {
-            contentDiv.innerHTML = buffer;
-            const spinner = reportWin.document.getElementById('report-spinner');
-            if (spinner) spinner.style.display = 'none';
-          }
-        } catch(e) {}
-      }
-
-      btn.disabled = false;
-      btn.textContent = '▶ GENERATE NEW REPORT';
-
-    } catch(err) {
-      log('ERROR: ' + err.message, 'err');
-      setProgress(0, 'Error — see log');
-      btn.disabled = false;
-      btn.textContent = '▶ RETRY GENERATION';
-    }
-  }
-
-  function getReportShell(content) {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bloomberg Labs — Daily Market Report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<style>
-body { font-family: 'IBM Plex Sans', sans-serif; background: #fff; margin: 0; padding: 0; }
-#report-spinner {
-  display: flex; align-items: center; justify-content: center;
-  min-height: 300px; font-family: 'IBM Plex Mono', monospace;
-  font-size: 13px; color: #737373; letter-spacing: 0.1em;
+function tick(){document.getElementById('clk').textContent=new Date().toUTCString().slice(0,25)+' UTC'}
+setInterval(tick,1000);tick();
+function log(m,c=''){
+  const d=document.createElement('div');d.className='lg';
+  d.innerHTML=`<span class="ts">${new Date().toTimeString().slice(0,8)}</span><span class="${c}">${m}</span>`;
+  document.getElementById('log').appendChild(d);
 }
-#report-wrapper { max-width: 900px; margin: 0 auto; padding: 40px 48px; }
-</style>
-</head>
-<body>
-<div id="report-wrapper">
-  <div id="report-spinner">⏳ GENERATING REPORT — PLEASE WAIT...</div>
-  <div id="report-content">${content}</div>
-</div>
-</body>
-</html>`;
+function bar(p){document.getElementById('bf').style.width=p+'%'}
+async function go(){
+  const btn=document.getElementById('btn');
+  btn.disabled=true;btn.textContent='⏳ FETCHING...';
+  document.getElementById('st').classList.add('on');
+  document.getElementById('log').innerHTML='';
+  bar(5);log('Connecting to Atlas...','hi');
+  try{
+    const r=await fetch('/api/report');
+    bar(70);
+    if(!r.ok)throw new Error(await r.text());
+    log('Data fetched','ok');bar(90);
+    log('Rendering...','hi');
+    const html=await r.text();
+    bar(100);log('Done','ok');
+    const w=window.open('','_blank');
+    w.document.open();w.document.write(html);w.document.close();
+    btn.disabled=false;btn.textContent='▶ GENERATE NEW REPORT';
+  }catch(e){
+    log('ERROR: '+e.message,'er');bar(0);
+    btn.disabled=false;btn.textContent='▶ RETRY';
   }
+}
 </script>
 </body>
-</html>
-"""
+</html>"""
 
-REPORT_HTML = """<!DOCTYPE html>
+REPORT = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bloomberg Labs — Daily Market Report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<title>Bloomberg Labs — {{ date_str }}</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'IBM Plex Sans', sans-serif;
-    background: #ffffff;
-    color: #111827;
-    padding: 0;
-    min-height: 100vh;
-  }
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 
-  /* Masthead — outside screenshot area if needed */
-  .masthead {
-    background: #111827;
-    color: #fff;
-    padding: 16px 48px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 3px solid #e5e7eb;
-  }
-  .masthead-left {
-    display: flex;
-    flex-direction: column;
-  }
-  .masthead-name {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: #fff;
-  }
-  .masthead-sub {
-    font-size: 11px;
-    color: #9ca3af;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-top: 2px;
-  }
-  .masthead-right {
-    text-align: right;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    color: #6b7280;
-  }
-  .masthead-date {
-    font-size: 13px;
-    color: #d1d5db;
-    font-weight: 500;
-  }
+.toolbar{background:#0a0a0a;border-bottom:1px solid #1e1e1e;padding:10px 40px;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:10}
+.tbtn{padding:5px 12px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border:1px solid #2a2a2a;background:transparent;color:#555;cursor:pointer;transition:all .15s}
+.tbtn:hover,.tbtn.p{background:#fff;color:#000;border-color:#fff}
+.tsp{flex:1}
+.th{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}
 
-  /* Report body */
-  #report-wrapper {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 40px 48px 60px;
-  }
+#R{max-width:1140px;margin:0 auto;padding:48px 48px 72px}
 
-  /* Loading state */
-  #report-spinner {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
-    gap: 16px;
-  }
-  .spinner-text {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    color: #737373;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-  }
-  .spinner-bar {
-    width: 200px;
-    height: 2px;
-    background: #f3f4f6;
-    position: relative;
-    overflow: hidden;
-  }
-  .spinner-bar::after {
-    content: '';
-    position: absolute;
-    left: -40%;
-    width: 40%;
-    height: 100%;
-    background: #16a34a;
-    animation: sweep 1.2s ease-in-out infinite;
-  }
-  @keyframes sweep {
-    0% { left: -40%; }
-    100% { left: 100%; }
-  }
+/* Masthead */
+.mast{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:24px;border-bottom:2px solid #222;margin-bottom:36px}
+.m-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#444;margin-bottom:10px}
+.m-title{font-size:56px;font-weight:700;letter-spacing:-.03em;line-height:.95;color:#fff}
+.m-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#444;margin-top:8px}
+.m-r{text-align:right}
+.m-date{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff;margin-bottom:5px}
+.m-time{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#444;line-height:1.7}
 
-  /* Toolbar (only on report page) */
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 48px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-  }
-  .toolbar-btn {
-    padding: 6px 14px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    cursor: pointer;
-    border: 1px solid #d1d5db;
-    background: #fff;
-    color: #374151;
-    text-transform: uppercase;
-  }
-  .toolbar-btn:hover { background: #111827; color: #fff; border-color: #111827; }
-  .toolbar-btn.primary { background: #111827; color: #fff; border-color: #111827; }
-  .toolbar-btn.primary:hover { background: #374151; }
-  .toolbar-sep { flex: 1; }
-  .toolbar-hint {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    color: #9ca3af;
-  }
+/* Stats bar */
+.sbar{display:flex;border:1px solid #1e1e1e;margin-bottom:40px}
+.sb{flex:1;padding:14px 20px;border-right:1px solid #1e1e1e}
+.sb:last-child{border-right:none}
+.sb-l{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#444;margin-bottom:5px}
+.sb-v{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#fff}
+.sb-s{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a;margin-top:3px}
 
-  @media print {
-    .masthead, .toolbar { display: none; }
-    body { padding: 0; }
-    #report-wrapper { padding: 20px; }
-  }
+/* Two col */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-bottom:40px}
+
+/* Section */
+.sh{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#3a3a3a;border-bottom:1px solid #1e1e1e;padding-bottom:7px;margin-bottom:0}
+.sec{margin-bottom:32px}
+
+/* Security card */
+.sc{padding:14px 0;border-bottom:1px solid #181818}
+.sc:last-child{border-bottom:none}
+.sc-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
+.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#444;letter-spacing:.06em}
+.sc-px{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:#fff}
+.sc-nm{font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px}
+.sc-ch{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500}
+.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#444}
+.sc-mt{display:flex;flex-wrap:wrap;gap:12px;margin-top:5px}
+.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333}
+.sc-mi span{color:#666}
+.frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 4px;margin-left:5px;vertical-align:middle}
+
+/* Indices */
+.ir{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid #181818}
+.ir:last-child{border-bottom:none}
+.ir-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a;letter-spacing:.08em;margin-bottom:3px}
+.ir-nm{font-size:13px;font-weight:600;color:#bbb}
+.ir-v{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff;text-align:right}
+.ir-d{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a;text-align:right;margin-top:2px}
+
+/* Orderbook */
+.ob-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.ob-card{background:#141414;border:1px solid #1e1e1e;padding:14px}
+.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#444;letter-spacing:.06em;margin-bottom:3px}
+.ob-nm{font-size:11px;font-weight:600;color:#888;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-ss{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ob-sl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px}
+.ob-sl.bid{color:#16a34a}.ob-sl.ask{color:#dc2626}
+.ob-lv{font-family:'IBM Plex Mono',monospace;font-size:10px;display:flex;justify-content:space-between;padding:1px 0}
+.ob-p{color:#bbb}.ob-q{color:#333}
+.ob-em{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a;font-style:italic}
+.ob-sp{margin-top:8px;padding-top:8px;border-top:1px solid #1a1a1a;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333;display:flex;justify-content:space-between}
+.spv{color:#666}.spv.w{color:#d97706}.spv.d{color:#dc2626}
+
+.div{height:1px;background:#1a1a1a;margin-bottom:36px}
+.rfooter{margin-top:48px;padding-top:14px;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}
+
+@media print{.toolbar{display:none}#R{padding:32px}}
 </style>
 </head>
 <body>
-
-<div class="masthead">
-  <div class="masthead-left">
-    <div class="masthead-name">BLOOMBERG LABS</div>
-    <div class="masthead-sub">DemocracyCraft Financial Intelligence · Daily Market Report</div>
-  </div>
-  <div class="masthead-right">
-    <div class="masthead-date" id="report-date"></div>
-    <div>Atlas Market API · Claude Sonnet 4</div>
-    <div>CONFIDENTIAL · INTERNAL USE ONLY</div>
-  </div>
-</div>
 
 <div class="toolbar">
-  <button class="toolbar-btn primary" onclick="window.print()">⎙ Print / Save PDF</button>
-  <button class="toolbar-btn" onclick="window.location='/'">← New Report</button>
-  <button class="toolbar-btn" onclick="copyHTML()">⧉ Copy HTML</button>
-  <span class="toolbar-sep"></span>
-  <span class="toolbar-hint">TIP: Use browser Print → Save as PDF for Discord screenshot</span>
+  <button class="tbtn p" onclick="window.print()">⎙ Save PDF</button>
+  <button class="tbtn" onclick="window.close()">← Back</button>
+  <span class="tsp"></span>
+  <span class="th">Print → Save as PDF for Discord · Bloomberg Labs</span>
 </div>
 
-<div id="report-wrapper">
-  <div id="report-spinner">
-    <div class="spinner-text">Awaiting report data...</div>
-    <div class="spinner-bar"></div>
+<div id="R">
+
+  <div class="mast">
+    <div>
+      <div class="m-tag">Bloomberg Labs · DemocracyCraft · NER Exchange</div>
+      <div class="m-title">Market<br>Recap</div>
+      <div class="m-sub">// Daily Summary · Atlas Market Infrastructure</div>
+    </div>
+    <div class="m-r">
+      <div class="m-date">{{ date_str }}</div>
+      <div class="m-time">{{ time_str }} UTC</div>
+      <div class="m-time">{{ active_count }} Active · {{ frozen_count }} Frozen · {{ total_count }} Listed</div>
+    </div>
   </div>
-  <div id="report-content"></div>
+
+  <div class="sbar">
+    <div class="sb">
+      <div class="sb-l">NER Composite</div>
+      <div class="sb-v">{{ comp_val }}</div>
+      <div class="sb-s">Equal-weighted avg</div>
+    </div>
+    <div class="sb">
+      <div class="sb-l">NER Stocks</div>
+      <div class="sb-v">{{ stk_val }}</div>
+      <div class="sb-s">Equity basket</div>
+    </div>
+    <div class="sb">
+      <div class="sb-l">NER Fixed Income</div>
+      <div class="sb-v">{{ bond_val }}</div>
+      <div class="sb-s">Bond basket</div>
+    </div>
+    <div class="sb">
+      <div class="sb-l">Avg Liquidity</div>
+      <div class="sb-v">{{ avg_liq }}</div>
+      <div class="sb-s">Liquidity score</div>
+    </div>
+    <div class="sb">
+      <div class="sb-l">Avg Volatility</div>
+      <div class="sb-v">{{ avg_vol }}</div>
+      <div class="sb-s">7-day σ</div>
+    </div>
+    <div class="sb">
+      <div class="sb-l">Frozen</div>
+      <div class="sb-v" style="color:{% if frozen_count > 0 %}#dc2626{% else %}#16a34a{% endif %}">{{ frozen_count }}</div>
+      <div class="sb-s">Trading halted</div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <!-- LEFT -->
+    <div>
+      {% if stocks %}
+      <div class="sec">
+        <div class="sh">// Stocks</div>
+        {% for s in stocks %}
+        <div class="sc">
+          <div class="sc-top">
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-px">{{ s.price }}</span>
+          </div>
+          <div class="sc-nm">{{ s.name }}</div>
+          <div class="sc-ch {{ s.cls }}">
+            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%
+            {% if s.chg is not none %}&nbsp;&nbsp;{{ '+' if s.chg > 0 else '' }}{{ s.chg }}{% endif %}
+            {% else %}—{% endif %}
+          </div>
+          <div class="sc-mt">
+            <span class="sc-mi">VWAP7 <span>{{ s.vwap7 if s.vwap7 is not none else '—' }}</span></span>
+            <span class="sc-mi">VOL7 <span>{{ s.vol7 if s.vol7 is not none else '—' }}</span></span>
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
+            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if etfs %}
+      <div class="sec">
+        <div class="sh">// ETFs & Funds</div>
+        {% for s in etfs %}
+        <div class="sc">
+          <div class="sc-top">
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-px">{{ s.price }}</span>
+          </div>
+          <div class="sc-nm">{{ s.name }}</div>
+          <div class="sc-ch {{ s.cls }}">
+            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}
+          </div>
+          <div class="sc-mt">
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
+            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      {% if bonds %}
+      <div class="sec">
+        <div class="sh">// Fixed Income</div>
+        {% for s in bonds %}
+        <div class="sc">
+          <div class="sc-top">
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-px">{{ s.price }}</span>
+          </div>
+          <div class="sc-nm">{{ s.name }}</div>
+          <div class="sc-ch {{ s.cls }}">
+            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}
+          </div>
+          <div class="sc-mt">
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
+            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if commodities %}
+      <div class="sec">
+        <div class="sh">// Commodities</div>
+        {% for s in commodities %}
+        <div class="sc">
+          <div class="sc-top">
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-px">{{ s.price }}</span>
+          </div>
+          <div class="sc-nm">{{ s.name }}</div>
+          <div class="sc-ch {{ s.cls }}">
+            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}
+          </div>
+          <div class="sc-mt">
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
+            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="sec">
+        <div class="sh">// Bloomberg Indices</div>
+        {% for i in indices %}
+        <div class="ir">
+          <div>
+            <div class="ir-tk">{{ i.ticker }}</div>
+            <div class="ir-nm">{{ i.name }}</div>
+          </div>
+          <div>
+            <div class="ir-v">{{ i.value if i.value is not none else '—' }}</div>
+            <div class="ir-d">{{ i.desc }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="div"></div>
+
+  <div class="sec">
+    <div class="sh">// Orderbook Snapshot</div>
+    <div style="height:12px"></div>
+    <div class="ob-grid">
+      {% for ob in orderbooks %}
+      <div class="ob-card">
+        <div class="ob-tk">{{ ob.ticker }}</div>
+        <div class="ob-nm">{{ ob.name }}</div>
+        <div class="ob-ss">
+          <div>
+            <div class="ob-sl bid">Bids</div>
+            {% if ob.bids %}{% for lv in ob.bids %}
+            <div class="ob-lv"><span class="ob-p">{{ lv.price }}</span><span class="ob-q">×{{ lv.qty }}</span></div>
+            {% endfor %}{% else %}<div class="ob-em">no bids</div>{% endif %}
+          </div>
+          <div>
+            <div class="ob-sl ask">Asks</div>
+            {% if ob.asks %}{% for lv in ob.asks %}
+            <div class="ob-lv"><span class="ob-p">{{ lv.price }}</span><span class="ob-q">×{{ lv.qty }}</span></div>
+            {% endfor %}{% else %}<div class="ob-em">no asks</div>{% endif %}
+          </div>
+        </div>
+        {% if ob.spread is not none %}
+        <div class="ob-sp">
+          <span>Spread</span>
+          <span class="spv {% if ob.spread_pct and ob.spread_pct > 25 %}d{% elif ob.spread_pct and ob.spread_pct > 10 %}w{% endif %}">
+            {{ ob.spread }} ({{ ob.spread_pct }}%)
+          </span>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="rfooter">
+    <span>BLOOMBERG LABS · DEMOCRACYCRAFT · NER EXCHANGE</span>
+    <span>{{ time_str }} UTC · Atlas Market Infrastructure · CONFIDENTIAL</span>
+  </div>
+
 </div>
-
-<script>
-  // Set date
-  document.getElementById('report-date').textContent = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  });
-
-  // Try to load from sessionStorage
-  function tryLoad() {
-    const html = sessionStorage.getItem('reportHTML');
-    if (html) {
-      document.getElementById('report-spinner').style.display = 'none';
-      document.getElementById('report-content').innerHTML = html;
-      return true;
-    }
-    return false;
-  }
-
-  if (!tryLoad()) {
-    // Poll for a few seconds in case generator is still running
-    let attempts = 0;
-    const interval = setInterval(() => {
-      attempts++;
-      if (tryLoad() || attempts > 60) clearInterval(interval);
-    }, 500);
-  }
-
-  function copyHTML() {
-    const html = document.getElementById('report-content').innerHTML;
-    navigator.clipboard.writeText(html).then(() => alert('HTML copied to clipboard!'));
-  }
-</script>
 </body>
-</html>
-"""
+</html>"""
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -813,49 +512,78 @@ REPORT_HTML = """<!DOCTYPE html>
 def index():
     return render_template_string(INDEX_HTML)
 
-@app.route("/report")
-def report():
-    return render_template_string(REPORT_HTML)
+@app.route("/api/report")
+def api_report():
+    try:
+        data = fetch_all()
+    except Exception as e:
+        return f"Atlas error: {e}", 500
 
-@app.route("/api/generate", methods=["POST"])
-def generate():
-    """Fetch Atlas data, stream Claude response."""
-    def stream():
-        # 1. Fetch Atlas data
-        try:
-            atlas_data = fetch_atlas_data()
-        except Exception as e:
-            yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR fetching Atlas data: {e}</p>"
-            return
+    securities = data.get("securities", [])
+    if not isinstance(securities, list):
+        securities = []
 
-        # 2. Stream from Groq
-        try:
-            client = Groq(api_key=GROQ_API_KEY)
-            user_prompt = build_user_prompt(atlas_data)
-            stream = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                max_tokens=4096,
-                stream=True,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            for chunk in stream:
-                text = chunk.choices[0].delta.content
-                if text:
-                    yield text
+    history = data.get("history", {})
+    ob_raw  = data.get("orderbook", {})
 
-        except Exception as e:
-            yield f"<p style='color:#dc2626;font-family:IBM Plex Mono,monospace'>ERROR from Groq: {e}</p>"
+    processed = [process_sec(s, history) for s in securities]
+    name_map  = {s["ticker"]: s.get("full_name", s["ticker"]) for s in securities}
 
-    return Response(stream_with_context(stream()), mimetype="text/plain")
+    def by_cat(cat):
+        return [p for s, p in zip(securities, processed) if classify(s["ticker"]) == cat]
+
+    stocks      = by_cat("Stock")
+    etfs        = by_cat("ETF")
+    bonds       = by_cat("Bond")
+    commodities = by_cat("Commodity")
+    indices     = compute_indices(securities)
+
+    orderbooks = []
+    if isinstance(ob_raw, dict):
+        for ticker, book in ob_raw.items():
+            orderbooks.append(process_ob(ticker, book, name_map))
+    orderbooks.sort(key=lambda x: (not x["bids"] and not x["asks"], x["ticker"]))
+
+    visible   = [s for s in securities if not s.get("hidden")]
+    total     = len(visible)
+    frozen    = len([s for s in visible if s.get("frozen")])
+    active    = total - frozen
+
+    liqs = [p["liq"] for p in processed if p["liq"] is not None]
+    vols = [p["vol7"] for p in processed if p["vol7"] is not None]
+    avg_liq = fmt(sum(liqs)/len(liqs)) if liqs else "—"
+    avg_vol = fmt(sum(vols)/len(vols)) if vols else "—"
+
+    def idx_val(ticker):
+        i = next((x for x in indices if x["ticker"] == ticker), None)
+        return i["value"] if i and i["value"] is not None else "—"
+
+    now = datetime.now(timezone.utc)
+
+    html = render_template_string(
+        REPORT,
+        date_str     = now.strftime("%b. %d, %Y"),
+        time_str     = now.strftime("%H:%M:%S"),
+        stocks       = stocks,
+        etfs         = etfs,
+        bonds        = bonds,
+        commodities  = commodities,
+        indices      = indices,
+        orderbooks   = orderbooks,
+        total_count  = total,
+        frozen_count = frozen,
+        active_count = active,
+        avg_liq      = avg_liq,
+        avg_vol      = avg_vol,
+        comp_val     = idx_val("B:COMP"),
+        stk_val      = idx_val("B:STK"),
+        bond_val     = idx_val("B:BOND"),
+    )
+    return html, 200, {"Content-Type": "text/html"}
 
 @app.route("/health")
 def health():
-    return {"status": "ok", "atlas_url": ATLAS_URL[:30] + "..." if len(ATLAS_URL) > 30 else ATLAS_URL}
-
-# ─── Entry point ─────────────────────────────────────────────────────────────
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
