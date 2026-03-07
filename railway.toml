@@ -6,4 +6,4 @@ startCommand = "pip3 install -r requirements.txt && python main.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3A
+restartPolicyMaxRetries = 3
