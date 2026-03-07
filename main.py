@@ -211,300 +211,381 @@ REPORT = """<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
+html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 
-.toolbar{background:#0a0a0a;border-bottom:1px solid #1e1e1e;padding:10px 40px;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:10}
-.tbtn{padding:5px 12px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border:1px solid #2a2a2a;background:transparent;color:#555;cursor:pointer;transition:all .15s}
+/* ── TOOLBAR ── */
+.toolbar{background:#0a0a0a;border-bottom:1px solid #1e1e1e;padding:10px 32px;display:flex;gap:8px;align-items:center;position:fixed;top:0;left:0;right:0;z-index:100}
+.tbtn{padding:5px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border:1px solid #2a2a2a;background:transparent;color:#555;cursor:pointer;transition:all .15s}
 .tbtn:hover,.tbtn.p{background:#fff;color:#000;border-color:#fff}
 .tsp{flex:1}
 .th{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}
 
-#R{max-width:1140px;margin:0 auto;padding:48px 48px 72px}
+/* ── PAGE SYSTEM ── */
+/* Each .page is exactly 1280×720px landscape — screenshot-ready */
+.pages{margin-top:42px;display:flex;flex-direction:column;gap:0;align-items:center;padding:24px 0 48px}
+.page{
+  width:1280px;
+  min-height:720px;
+  background:#111;
+  position:relative;
+  overflow:hidden;
+  border:1px solid #1e1e1e;
+  margin-bottom:16px;
+  display:flex;
+  flex-direction:column;
+}
+.page-inner{flex:1;padding:32px 40px 28px;display:flex;flex-direction:column}
 
-/* Masthead */
-.mast{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:24px;border-bottom:2px solid #222;margin-bottom:36px}
-.m-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#444;margin-bottom:10px}
-.m-title{font-size:56px;font-weight:700;letter-spacing:-.03em;line-height:.95;color:#fff}
-.m-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#444;margin-top:8px}
-.m-r{text-align:right}
-.m-date{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff;margin-bottom:5px}
-.m-time{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#444;line-height:1.7}
+/* Page nav pills */
+.page-num{position:absolute;bottom:14px;right:18px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;letter-spacing:.1em}
 
-/* Stats bar */
-.sbar{display:flex;border:1px solid #1e1e1e;margin-bottom:40px}
-.sb{flex:1;padding:14px 20px;border-right:1px solid #1e1e1e}
-.sb:last-child{border-right:none}
-.sb-l{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#444;margin-bottom:5px}
-.sb-v{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#fff}
-.sb-s{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a;margin-top:3px}
+/* ── SHARED HEADER STRIP ── */
+.page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid #1e1e1e}
+.ph-left{display:flex;align-items:baseline;gap:16px}
+.ph-logo{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:#fff;letter-spacing:.02em}
+.ph-sep{width:1px;height:12px;background:#2a2a2a}
+.ph-title{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#444}
+.ph-right{display:flex;align-items:center;gap:16px}
+.ph-date{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#888}
+.ph-time{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a}
 
-/* Two col */
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-bottom:40px}
+/* ── PAGE 1: HERO ── */
+.p1-layout{display:grid;grid-template-columns:1fr 1fr;gap:32px;flex:1}
+.p1-left{display:flex;flex-direction:column;justify-content:space-between}
+.hero-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#3a3a3a;margin-bottom:10px}
+.hero-title{font-size:72px;font-weight:700;letter-spacing:-.03em;line-height:.92;color:#fff;margin-bottom:16px}
+.hero-sub{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a}
+.hero-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:#1e1e1e;border:1px solid #1e1e1e;margin-top:auto}
+.hs{background:#141414;padding:14px 16px}
+.hs-l{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#3a3a3a;margin-bottom:5px}
+.hs-v{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff}
+.hs-s{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;margin-top:3px}
+.hs-v.red{color:#dc2626}
+.hs-v.grn{color:#16a34a}
 
-/* Section */
-.sh{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#3a3a3a;border-bottom:1px solid #1e1e1e;padding-bottom:7px;margin-bottom:0}
-.sec{margin-bottom:32px}
+.p1-right{display:flex;flex-direction:column;gap:0}
+.idx-header{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#3a3a3a;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1e1e1e}
+.idx-row{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid #181818}
+.idx-row:last-child{border-bottom:none}
+.idx-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a3a3a;letter-spacing:.1em;margin-bottom:3px}
+.idx-nm{font-size:14px;font-weight:600;color:#ccc}
+.idx-r{text-align:right}
+.idx-val{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:#fff}
+.idx-d{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;margin-top:2px}
 
-/* Security card */
-.sc{padding:14px 0;border-bottom:1px solid #181818}
+/* ── PAGE 2: SECURITIES ── */
+.p2-layout{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;flex:1}
+.sec-col{}
+.col-header{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#3a3a3a;padding-bottom:8px;border-bottom:1px solid #1e1e1e;margin-bottom:0}
+.sc{padding:11px 0;border-bottom:1px solid #161616}
 .sc:last-child{border-bottom:none}
 .sc-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
-.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#444;letter-spacing:.06em}
-.sc-px{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:#fff}
-.sc-nm{font-size:12px;font-weight:600;color:#aaa;margin-bottom:5px}
-.sc-ch{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500}
-.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#444}
-.sc-mt{display:flex;flex-wrap:wrap;gap:12px;margin-top:5px}
-.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333}
-.sc-mi span{color:#666}
-.frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 4px;margin-left:5px;vertical-align:middle}
+.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a3a3a;letter-spacing:.06em}
+.sc-px{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#fff;line-height:1}
+.sc-nm{font-size:11px;font-weight:600;color:#888;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-ch{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;margin-bottom:4px}
+.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#333}
+.sc-mt{display:flex;flex-wrap:wrap;gap:8px}
+.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a}
+.sc-mi span{color:#555}
+.frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 3px;margin-left:4px;vertical-align:middle}
 
-/* Indices */
-.ir{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid #181818}
-.ir:last-child{border-bottom:none}
-.ir-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a;letter-spacing:.08em;margin-bottom:3px}
-.ir-nm{font-size:13px;font-weight:600;color:#bbb}
-.ir-v{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff;text-align:right}
-.ir-d{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a3a3a;text-align:right;margin-top:2px}
-
-/* Orderbook */
-.ob-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
-.ob-card{background:#141414;border:1px solid #1e1e1e;padding:14px}
-.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#444;letter-spacing:.06em;margin-bottom:3px}
-.ob-nm{font-size:11px;font-weight:600;color:#888;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ob-ss{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.ob-sl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px}
+/* ── PAGE 3: ORDERBOOK ── */
+.p3-layout{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;flex:1}
+.ob-card{background:#141414;border:1px solid #1a1a1a;padding:13px}
+.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a3a3a;letter-spacing:.08em;margin-bottom:2px}
+.ob-nm{font-size:11px;font-weight:600;color:#777;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ob-sl{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
 .ob-sl.bid{color:#16a34a}.ob-sl.ask{color:#dc2626}
 .ob-lv{font-family:'IBM Plex Mono',monospace;font-size:10px;display:flex;justify-content:space-between;padding:1px 0}
-.ob-p{color:#bbb}.ob-q{color:#333}
-.ob-em{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a;font-style:italic}
-.ob-sp{margin-top:8px;padding-top:8px;border-top:1px solid #1a1a1a;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333;display:flex;justify-content:space-between}
-.spv{color:#666}.spv.w{color:#d97706}.spv.d{color:#dc2626}
+.ob-p{color:#bbb}.ob-q{color:#2a2a2a}
+.ob-em{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222;font-style:italic}
+.ob-sp{margin-top:8px;padding-top:7px;border-top:1px solid #181818;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;display:flex;justify-content:space-between}
+.spv{color:#555}.spv.w{color:#d97706}.spv.d{color:#dc2626}
 
-.div{height:1px;background:#1a1a1a;margin-bottom:36px}
-.rfooter{margin-top:48px;padding-top:14px;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}
+.page-footer{margin-top:auto;padding-top:10px;border-top:1px solid #181818;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222}
 
-@media print{.toolbar{display:none}#R{padding:32px}}
+@media print{
+  .toolbar{display:none}
+  .pages{margin-top:0;padding:0}
+  .page{margin-bottom:0;page-break-after:always;border:none}
+}
 </style>
 </head>
 <body>
 
 <div class="toolbar">
-  <button class="tbtn p" onclick="window.print()">⎙ Save PDF</button>
+  <button class="tbtn p" onclick="window.print()">⎙ Print / PDF</button>
   <button class="tbtn" onclick="window.close()">← Back</button>
   <span class="tsp"></span>
-  <span class="th">Print → Save as PDF for Discord · Bloomberg Labs</span>
+  <span class="th">Screenshot each page · 1280×720 · Bloomberg Labs</span>
 </div>
 
-<div id="R">
+<div class="pages">
 
-  <div class="mast">
-    <div>
-      <div class="m-tag">Bloomberg Labs · DemocracyCraft · NER Exchange</div>
-      <div class="m-title">Market<br>Recap</div>
-      <div class="m-sub">// Daily Summary · Atlas Market Infrastructure</div>
+<!-- ═══════════════════════════════════════════════════════════
+     PAGE 1 — COVER + INDICES
+══════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-inner">
+    <div class="page-header">
+      <div class="ph-left">
+        <span class="ph-logo">BLOOMBERG LABS</span>
+        <span class="ph-sep"></span>
+        <span class="ph-title">DemocracyCraft · NER Exchange · Daily Market Recap</span>
+      </div>
+      <div class="ph-right">
+        <span class="ph-date">{{ date_str }}</span>
+        <span class="ph-time">{{ time_str }} UTC</span>
+      </div>
     </div>
-    <div class="m-r">
-      <div class="m-date">{{ date_str }}</div>
-      <div class="m-time">{{ time_str }} UTC</div>
-      <div class="m-time">{{ active_count }} Active · {{ frozen_count }} Frozen · {{ total_count }} Listed</div>
-    </div>
-  </div>
 
-  <div class="sbar">
-    <div class="sb">
-      <div class="sb-l">NER Composite</div>
-      <div class="sb-v">{{ comp_val }}</div>
-      <div class="sb-s">Equal-weighted avg</div>
-    </div>
-    <div class="sb">
-      <div class="sb-l">NER Stocks</div>
-      <div class="sb-v">{{ stk_val }}</div>
-      <div class="sb-s">Equity basket</div>
-    </div>
-    <div class="sb">
-      <div class="sb-l">NER Fixed Income</div>
-      <div class="sb-v">{{ bond_val }}</div>
-      <div class="sb-s">Bond basket</div>
-    </div>
-    <div class="sb">
-      <div class="sb-l">Avg Liquidity</div>
-      <div class="sb-v">{{ avg_liq }}</div>
-      <div class="sb-s">Liquidity score</div>
-    </div>
-    <div class="sb">
-      <div class="sb-l">Avg Volatility</div>
-      <div class="sb-v">{{ avg_vol }}</div>
-      <div class="sb-s">7-day σ</div>
-    </div>
-    <div class="sb">
-      <div class="sb-l">Frozen</div>
-      <div class="sb-v" style="color:{% if frozen_count > 0 %}#dc2626{% else %}#16a34a{% endif %}">{{ frozen_count }}</div>
-      <div class="sb-s">Trading halted</div>
-    </div>
-  </div>
-
-  <div class="g2">
-    <!-- LEFT -->
-    <div>
-      {% if stocks %}
-      <div class="sec">
-        <div class="sh">// Stocks</div>
-        {% for s in stocks %}
-        <div class="sc">
-          <div class="sc-top">
-            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
-            <span class="sc-px">{{ s.price }}</span>
+    <div class="p1-layout">
+      <div class="p1-left">
+        <div>
+          <div class="hero-tag">NER Exchange · Bloomberg Labs</div>
+          <div class="hero-title">Market<br>Recap</div>
+          <div class="hero-sub">// {{ date_str }} · {{ time_str }} UTC<br>// {{ active_count }} Active · {{ frozen_count }} Frozen · {{ total_count }} Listed</div>
+        </div>
+        <div class="hero-stats">
+          <div class="hs">
+            <div class="hs-l">NER Composite</div>
+            <div class="hs-v">{{ comp_val }}</div>
+            <div class="hs-s">Equal-weighted avg</div>
           </div>
-          <div class="sc-nm">{{ s.name }}</div>
-          <div class="sc-ch {{ s.cls }}">
-            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%
-            {% if s.chg is not none %}&nbsp;&nbsp;{{ '+' if s.chg > 0 else '' }}{{ s.chg }}{% endif %}
-            {% else %}—{% endif %}
+          <div class="hs">
+            <div class="hs-l">NER Stocks</div>
+            <div class="hs-v">{{ stk_val }}</div>
+            <div class="hs-s">Equity basket</div>
           </div>
-          <div class="sc-mt">
-            <span class="sc-mi">VWAP7 <span>{{ s.vwap7 if s.vwap7 is not none else '—' }}</span></span>
-            <span class="sc-mi">VOL7 <span>{{ s.vol7 if s.vol7 is not none else '—' }}</span></span>
-            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
-            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
+          <div class="hs">
+            <div class="hs-l">NER Fixed Income</div>
+            <div class="hs-v">{{ bond_val }}</div>
+            <div class="hs-s">Bond basket</div>
+          </div>
+          <div class="hs">
+            <div class="hs-l">Avg Liquidity</div>
+            <div class="hs-v">{{ avg_liq }}</div>
+            <div class="hs-s">Liquidity score</div>
+          </div>
+          <div class="hs">
+            <div class="hs-l">Avg Volatility 7d</div>
+            <div class="hs-v">{{ avg_vol }}</div>
+            <div class="hs-s">σ across market</div>
+          </div>
+          <div class="hs">
+            <div class="hs-l">Frozen</div>
+            <div class="hs-v {% if frozen_count > 0 %}red{% else %}grn{% endif %}">{{ frozen_count }}</div>
+            <div class="hs-s">Trading halted</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p1-right">
+        <div class="idx-header">// Bloomberg Indices</div>
+        {% for i in indices %}
+        <div class="idx-row">
+          <div>
+            <div class="idx-tk">{{ i.ticker }}</div>
+            <div class="idx-nm">{{ i.name }}</div>
+          </div>
+          <div class="idx-r">
+            <div class="idx-val">{{ i.value if i.value is not none else "—" }}</div>
+            <div class="idx-d">{{ i.desc }}</div>
           </div>
         </div>
         {% endfor %}
       </div>
-      {% endif %}
+    </div>
 
-      {% if etfs %}
-      <div class="sec">
-        <div class="sh">// ETFs & Funds</div>
-        {% for s in etfs %}
+    <div class="page-footer">
+      <span>BLOOMBERG LABS · DEMOCRACYCRAFT · ATLAS MARKET INFRASTRUCTURE</span>
+      <span>PAGE 1 OF 3 · CONFIDENTIAL · INTERNAL USE ONLY</span>
+    </div>
+  </div>
+  <div class="page-num">1 / 3</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     PAGE 2 — SECURITIES
+══════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-inner">
+    <div class="page-header">
+      <div class="ph-left">
+        <span class="ph-logo">BLOOMBERG LABS</span>
+        <span class="ph-sep"></span>
+        <span class="ph-title">Securities Overview</span>
+      </div>
+      <div class="ph-right">
+        <span class="ph-date">{{ date_str }}</span>
+        <span class="ph-time">{{ time_str }} UTC</span>
+      </div>
+    </div>
+
+    <div class="p2-layout">
+      <!-- STOCKS col 1 -->
+      <div class="sec-col">
+        <div class="col-header">// Stocks (1/2)</div>
+        {% for s in stocks[:4] %}
         <div class="sc">
           <div class="sc-top">
-            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FRZ</span>{% endif %}</span>
             <span class="sc-px">{{ s.price }}</span>
           </div>
           <div class="sc-nm">{{ s.name }}</div>
-          <div class="sc-ch {{ s.cls }}">
-            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}
-          </div>
+          <div class="sc-ch {{ s.cls }}">{% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% if s.chg is not none %} ({{ '+' if s.chg > 0 else '' }}{{ s.chg }}){% endif %}{% else %}—{% endif %}</div>
           <div class="sc-mt">
-            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
-            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
+            <span class="sc-mi">VWAP7 <span>{{ s.vwap7 if s.vwap7 is not none else "—" }}</span></span>
+            <span class="sc-mi">VOL <span>{{ s.vol7 if s.vol7 is not none else "—" }}</span></span>
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else "—" }}</span></span>
           </div>
         </div>
         {% endfor %}
       </div>
-      {% endif %}
-    </div>
 
-    <!-- RIGHT -->
-    <div>
-      {% if bonds %}
-      <div class="sec">
-        <div class="sh">// Fixed Income</div>
+      <!-- STOCKS col 2 -->
+      <div class="sec-col">
+        <div class="col-header">// Stocks (2/2)</div>
+        {% for s in stocks[4:] %}
+        <div class="sc">
+          <div class="sc-top">
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FRZ</span>{% endif %}</span>
+            <span class="sc-px">{{ s.price }}</span>
+          </div>
+          <div class="sc-nm">{{ s.name }}</div>
+          <div class="sc-ch {{ s.cls }}">{% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% if s.chg is not none %} ({{ '+' if s.chg > 0 else '' }}{{ s.chg }}){% endif %}{% else %}—{% endif %}</div>
+          <div class="sc-mt">
+            <span class="sc-mi">VWAP7 <span>{{ s.vwap7 if s.vwap7 is not none else "—" }}</span></span>
+            <span class="sc-mi">VOL <span>{{ s.vol7 if s.vol7 is not none else "—" }}</span></span>
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else "—" }}</span></span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- FIXED INCOME + COMMODITIES -->
+      <div class="sec-col">
+        <div class="col-header">// Fixed Income</div>
         {% for s in bonds %}
         <div class="sc">
           <div class="sc-top">
-            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FRZ</span>{% endif %}</span>
             <span class="sc-px">{{ s.price }}</span>
           </div>
           <div class="sc-nm">{{ s.name }}</div>
-          <div class="sc-ch {{ s.cls }}">
-            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}
-          </div>
+          <div class="sc-ch {{ s.cls }}">{% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}</div>
           <div class="sc-mt">
-            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else "—" }}</span></span>
             <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
           </div>
         </div>
         {% endfor %}
-      </div>
-      {% endif %}
 
-      {% if commodities %}
-      <div class="sec">
-        <div class="sh">// Commodities</div>
+        {% if commodities %}
+        <div class="col-header" style="margin-top:16px">// Commodities</div>
         {% for s in commodities %}
         <div class="sc">
           <div class="sc-top">
-            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FROZEN</span>{% endif %}</span>
+            <span class="sc-tk">{{ s.ticker }}</span>
             <span class="sc-px">{{ s.price }}</span>
           </div>
           <div class="sc-nm">{{ s.name }}</div>
-          <div class="sc-ch {{ s.cls }}">
-            {% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}
-          </div>
+          <div class="sc-ch {{ s.cls }}">{% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}</div>
           <div class="sc-mt">
-            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else '—' }}</span></span>
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else "—" }}</span></span>
             <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
           </div>
         </div>
         {% endfor %}
+        {% endif %}
       </div>
-      {% endif %}
 
-      <div class="sec">
-        <div class="sh">// Bloomberg Indices</div>
-        {% for i in indices %}
-        <div class="ir">
-          <div>
-            <div class="ir-tk">{{ i.ticker }}</div>
-            <div class="ir-nm">{{ i.name }}</div>
+      <!-- ETFs -->
+      <div class="sec-col">
+        <div class="col-header">// ETFs & Funds</div>
+        {% for s in etfs %}
+        <div class="sc">
+          <div class="sc-top">
+            <span class="sc-tk">{{ s.ticker }}{% if s.frozen %}<span class="frz">FRZ</span>{% endif %}</span>
+            <span class="sc-px">{{ s.price }}</span>
           </div>
-          <div>
-            <div class="ir-v">{{ i.value if i.value is not none else '—' }}</div>
-            <div class="ir-d">{{ i.desc }}</div>
+          <div class="sc-nm">{{ s.name }}</div>
+          <div class="sc-ch {{ s.cls }}">{% if s.chg_pct is not none %}{{ '+' if s.chg_pct > 0 else '' }}{{ s.chg_pct }}%{% else %}—{% endif %}</div>
+          <div class="sc-mt">
+            <span class="sc-mi">LIQ <span>{{ s.liq if s.liq is not none else "—" }}</span></span>
+            <span class="sc-mi">SHRS <span>{{ s.shares }}</span></span>
           </div>
         </div>
         {% endfor %}
       </div>
     </div>
+
+    <div class="page-footer">
+      <span>BLOOMBERG LABS · DEMOCRACYCRAFT · ATLAS MARKET INFRASTRUCTURE</span>
+      <span>PAGE 2 OF 3 · CONFIDENTIAL · INTERNAL USE ONLY</span>
+    </div>
   </div>
+  <div class="page-num">2 / 3</div>
+</div>
 
-  <div class="div"></div>
+<!-- ═══════════════════════════════════════════════════════════
+     PAGE 3 — ORDERBOOK
+══════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-inner">
+    <div class="page-header">
+      <div class="ph-left">
+        <span class="ph-logo">BLOOMBERG LABS</span>
+        <span class="ph-sep"></span>
+        <span class="ph-title">Orderbook Snapshot</span>
+      </div>
+      <div class="ph-right">
+        <span class="ph-date">{{ date_str }}</span>
+        <span class="ph-time">{{ time_str }} UTC</span>
+      </div>
+    </div>
 
-  <div class="sec">
-    <div class="sh">// Orderbook Snapshot</div>
-    <div style="height:12px"></div>
-    <div class="ob-grid">
+    <div class="p3-layout">
       {% for ob in orderbooks %}
       <div class="ob-card">
         <div class="ob-tk">{{ ob.ticker }}</div>
         <div class="ob-nm">{{ ob.name }}</div>
-        <div class="ob-ss">
+        <div class="ob-cols">
           <div>
             <div class="ob-sl bid">Bids</div>
-            {% if ob.bids %}{% for lv in ob.bids %}
-            <div class="ob-lv"><span class="ob-p">{{ lv.price }}</span><span class="ob-q">×{{ lv.qty }}</span></div>
-            {% endfor %}{% else %}<div class="ob-em">no bids</div>{% endif %}
+            {% if ob.bids %}{% for lv in ob.bids %}<div class="ob-lv"><span class="ob-p">{{ lv.price }}</span><span class="ob-q">×{{ lv.qty }}</span></div>{% endfor %}
+            {% else %}<div class="ob-em">no bids</div>{% endif %}
           </div>
           <div>
             <div class="ob-sl ask">Asks</div>
-            {% if ob.asks %}{% for lv in ob.asks %}
-            <div class="ob-lv"><span class="ob-p">{{ lv.price }}</span><span class="ob-q">×{{ lv.qty }}</span></div>
-            {% endfor %}{% else %}<div class="ob-em">no asks</div>{% endif %}
+            {% if ob.asks %}{% for lv in ob.asks %}<div class="ob-lv"><span class="ob-p">{{ lv.price }}</span><span class="ob-q">×{{ lv.qty }}</span></div>{% endfor %}
+            {% else %}<div class="ob-em">no asks</div>{% endif %}
           </div>
         </div>
         {% if ob.spread is not none %}
         <div class="ob-sp">
           <span>Spread</span>
-          <span class="spv {% if ob.spread_pct and ob.spread_pct > 25 %}d{% elif ob.spread_pct and ob.spread_pct > 10 %}w{% endif %}">
-            {{ ob.spread }} ({{ ob.spread_pct }}%)
-          </span>
+          <span class="spv {% if ob.spread_pct and ob.spread_pct > 25 %}d{% elif ob.spread_pct and ob.spread_pct > 10 %}w{% endif %}">{{ ob.spread }} ({{ ob.spread_pct }}%)</span>
         </div>
         {% endif %}
       </div>
       {% endfor %}
     </div>
-  </div>
 
-  <div class="rfooter">
-    <span>BLOOMBERG LABS · DEMOCRACYCRAFT · NER EXCHANGE</span>
-    <span>{{ time_str }} UTC · Atlas Market Infrastructure · CONFIDENTIAL</span>
+    <div class="page-footer">
+      <span>BLOOMBERG LABS · DEMOCRACYCRAFT · ATLAS MARKET INFRASTRUCTURE</span>
+      <span>PAGE 3 OF 3 · CONFIDENTIAL · INTERNAL USE ONLY</span>
+    </div>
   </div>
-
+  <div class="page-num">3 / 3</div>
 </div>
+
+</div><!-- /pages -->
 </body>
 </html>"""
+
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
