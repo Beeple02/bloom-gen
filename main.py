@@ -9,6 +9,7 @@ ATLAS_URL = os.environ.get("ATLAS_URL", "").rstrip("/")
 ATLAS_KEY = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
 
 BONDS       = {"RNC-B", "VSP3"}
+HIDDEN_TICKERS = {"RNHC", "RNC-B", "VSP3"}
 ETFS        = {"CGF", "RNHC", "SRI"}
 COMMODITIES = {"NTR"}
 
@@ -72,25 +73,39 @@ def compute_indices(securities):
         {"ticker":"B:CMDTY", "name":"NER Commodities",  "value":avg(buckets["Commodity"]), "desc":"Commodity basket"},
     ]
 
-def make_spark(prices, color, w=200, h=28):
-    """Generate inline SVG sparkline from a price list (oldest to newest)."""
+def make_spark(prices, color, w=400, h=60):
+    """Sleek smooth SVG sparkline — cubic bezier curves, subtle gradient fill, horizontal gridlines."""
     if len(prices) < 2:
         return ""
     mn, mx = min(prices), max(prices)
-    rng = mx - mn if mx != mn else 1
-    pts = []
-    for i, p in enumerate(prices):
-        x = round(i / (len(prices)-1) * w, 1)
-        y = round(h - ((p - mn) / rng * (h - 4) + 2), 1)
-        pts.append(f"{x},{y}")
-    polyline = " ".join(pts)
-    # fill path: go to bottom-right then bottom-left
-    last_x = round((len(prices)-1) / (len(prices)-1) * w, 1)
-    fill_d = f"M {pts[0]} " + " ".join(f"L {p}" for p in pts[1:]) + f" L {last_x},{h} L 0,{h} Z"
-    return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">'
-            f'<path d="{fill_d}" fill="{color}" opacity="0.08"/>'
-            f'<polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
-            f'</svg>')
+    rng = mx - mn if mx != mn else max(mn * 0.02, 1)
+    pad = 6
+    def px(i): return round(i / (len(prices)-1) * w, 1)
+    def py(p): return round(h - pad - ((p - mn) / rng * (h - pad*2)), 1)
+    coords = [(px(i), py(p)) for i, p in enumerate(prices)]
+    # Build smooth cubic bezier path
+    d = f"M {coords[0][0]},{coords[0][1]}"
+    for i in range(1, len(coords)):
+        x0,y0 = coords[i-1]; x1,y1 = coords[i]
+        cx = round((x0+x1)/2, 1)
+        d += f" C {cx},{y0} {cx},{y1} {x1},{y1}"
+    # Fill path
+    fd = d + f" L {coords[-1][0]},{h} L {coords[0][0]},{h} Z"
+    uid = abs(hash(color + str(len(prices)))) % 100000
+    # Subtle horizontal mid-line
+    mid_y = round(h/2, 1)
+    grid = f'<line x1="0" y1="{mid_y}" x2="{w}" y2="{mid_y}" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>'
+    return (
+        f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">'
+        f'<defs><linearGradient id="g{uid}" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{color}" stop-opacity="0.18"/>'
+        f'<stop offset="100%" stop-color="{color}" stop-opacity="0.01"/>'
+        f'</linearGradient></defs>'
+        f'{grid}'
+        f'<path d="{fd}" fill="url(#g{uid})"/>'
+        f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'</svg>'
+    )
 
 def process_sec(s, history):
     t       = s["ticker"]
@@ -492,9 +507,9 @@ def build_private(ctx):
 <div class="page"><div class="pi">
   {ph("Securities · Funds · Fixed Income · Commodities", ds, ts)}
   <div class="p2-g">
-    <div class="p2-col" style="gap:0"><div class="sh" style="flex-shrink:0;margin-bottom:0">// ETFs &amp; Funds</div>{p3_col1}</div>
-    <div class="p2-col" style="gap:0"><div class="sh" style="flex-shrink:0;margin-bottom:0">// Fixed Income</div>{p3_col2}</div>
-    <div class="p2-col" style="gap:0"><div class="sh" style="flex-shrink:0;margin-bottom:0">// Commodities</div>{p3_col3}</div>
+    <div class="p2-col"><div class="sh" style="flex-shrink:0;margin-bottom:0">// ETFs &amp; Funds</div>{p3_col1}</div>
+    <div class="p2-col"><div class="sh" style="flex-shrink:0;margin-bottom:0">// Fixed Income</div>{p3_col2}</div>
+    <div class="p2-col"><div class="sh" style="flex-shrink:0;margin-bottom:0">// Commodities</div>{p3_col3}</div>
   </div>
   {pf(3,4)}
 </div><div class="pn">3/4</div></div>
@@ -596,7 +611,7 @@ def api_report():
     name_map  = {s["ticker"]: s.get("full_name", s["ticker"]) for s in securities}
 
     def by_cat(cat):
-        return [p for s,p in zip(securities, processed) if classify(s["ticker"]) == cat]
+        return [p for s,p in zip(securities, processed) if classify(s["ticker"]) == cat and s["ticker"] not in HIDDEN_TICKERS]
 
     stocks      = by_cat("Stock")
     etfs        = by_cat("ETF")
