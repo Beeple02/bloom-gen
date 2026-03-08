@@ -87,7 +87,7 @@ def make_spark(prices, color, w=200, h=28):
     # fill path: go to bottom-right then bottom-left
     last_x = round((len(prices)-1) / (len(prices)-1) * w, 1)
     fill_d = f"M {pts[0]} " + " ".join(f"L {p}" for p in pts[1:]) + f" L {last_x},{h} L 0,{h} Z"
-    return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">'
+    return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">'
             f'<path d="{fill_d}" fill="{color}" opacity="0.08"/>'
             f'<polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
             f'</svg>')
@@ -185,11 +185,11 @@ html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 .frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.05em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 3px;margin-left:3px;vertical-align:middle}
 /* mini sparkline chart */
 .spark{display:block;width:100%;height:100%;margin-top:0}
-/* security tile = info card + chart panel */
+/* security tile = info card + chart panel (base, overridden per context) */
 .sc-tile{border-bottom:1px solid #1e1e1e}
 .sc-tile:last-child{border-bottom:none}
 .sc-tile .sc{border-bottom:none;padding-bottom:3px}
-.sc-chart{background:#0d0d0d;border-top:1px solid #1a1a1a;height:34px;overflow:hidden}
+.sc-chart{background:#0d0d0d;border-top:1px solid #1a1a1a;overflow:hidden}
 /* orderbook */
 .ob-card{background:#141414;border:1px solid #252525;padding:12px 14px}
 .ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;letter-spacing:.05em;margin-bottom:2px}
@@ -418,7 +418,7 @@ def build_private(ctx):
     stocks_cols = chunk(d["stocks"], 3)
     p2_cols = ""
     for col in stocks_cols:
-        p2_cols += f'<div>{"".join(sc_html(s) for s in col)}</div>'
+        p2_cols += f'<div class="p2-col">{"".join(sc_html(s) for s in col)}</div>'
 
     # ── Page 3: ETFs + Bonds + Commodities (3 cols) ──
     p3_col1 = "".join(sc_html(s) for s in d["etfs"])
@@ -452,7 +452,12 @@ def build_private(ctx):
 .ir2-v{{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#fff}}
 .ir2-d{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;margin-top:2px}}
 /* P2/P3 */
-.p2-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;overflow:hidden}}
+.p2-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;overflow:hidden}}
+.p2-col{{display:flex;flex-direction:column;overflow:hidden}}
+.sc-tile{{flex:1;display:flex;flex-direction:column;border-bottom:1px solid #1e1e1e;min-height:0}}
+.sc-tile:last-child{{border-bottom:none}}
+.sc-tile .sc{{flex-shrink:0;padding:5px 0 3px;border-bottom:none}}
+.sc-chart{{flex:1;background:#0d0d0d;border-top:1px solid #1a1a1a;min-height:0;overflow:hidden}}
 /* P4 */
 .p4-g{{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;overflow:hidden;align-content:start}}
 </style></head><body>
@@ -487,9 +492,9 @@ def build_private(ctx):
 <div class="page"><div class="pi">
   {ph("Securities · Funds · Fixed Income · Commodities", ds, ts)}
   <div class="p2-g">
-    <div><div class="sh">// ETFs &amp; Funds</div>{p3_col1}</div>
-    <div><div class="sh">// Fixed Income</div>{p3_col2}</div>
-    <div><div class="sh">// Commodities</div>{p3_col3}</div>
+    <div class="p2-col" style="gap:0"><div class="sh" style="flex-shrink:0;margin-bottom:0">// ETFs &amp; Funds</div>{p3_col1}</div>
+    <div class="p2-col" style="gap:0"><div class="sh" style="flex-shrink:0;margin-bottom:0">// Fixed Income</div>{p3_col2}</div>
+    <div class="p2-col" style="gap:0"><div class="sh" style="flex-shrink:0;margin-bottom:0">// Commodities</div>{p3_col3}</div>
   </div>
   {pf(3,4)}
 </div><div class="pn">3/4</div></div>
