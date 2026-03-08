@@ -73,7 +73,7 @@ def compute_indices(securities):
         {"ticker":"B:CMDTY", "name":"NER Commodities",  "value":avg(buckets["Commodity"]), "desc":"Commodity basket"},
     ]
 
-def make_spark(prices, color, w=400, h=80):
+def make_spark(prices, color, w=400, h=120):
     """
     Professional chart: dark bg, subtle horizontal grid lines, clean line,
     faint gradient fill, current price label pinned to right edge.
@@ -104,14 +104,14 @@ def make_spark(prices, color, w=400, h=80):
         gy = round(margin_t + ch * frac, 1)
         p_val = y_max - frac * y_rng
         grid += (f'<line x1="0" y1="{gy}" x2="{cw}" y2="{gy}" stroke="#333" stroke-width="0.5"/>'
-                 f'<text x="{cw + 3}" y="{gy + 3}" font-family="IBM Plex Mono,monospace" font-size="6" fill="#444">{p_val:.2f}</text>')
+                 f'<text x="{cw + 3}" y="{gy + 3}" font-family="IBM Plex Mono,monospace" font-size="7" fill="#555">{p_val:.2f}</text>')
     # Current price label pinned to last point
     last_x, last_y = pts[-1]
     cur_price = prices[-1]
     label_y = max(margin_t + 8, min(h - margin_b - 2, last_y))
     price_label = (
-        f'<rect x="{cw + 1}" y="{label_y - 7}" width="{margin_r - 2}" height="9" fill="{color}" rx="1"/>'
-        f'<text x="{cw + 3}" y="{label_y + 1}" font-family="IBM Plex Mono,monospace" font-size="6.5" font-weight="600" fill="#000">{cur_price:.2f}</text>'
+        f'<rect x="{cw + 1}" y="{label_y - 8}" width="{margin_r - 2}" height="11" fill="{color}" rx="1"/>'
+        f'<text x="{cw + 3}" y="{label_y + 2}" font-family="IBM Plex Mono,monospace" font-size="8" font-weight="600" fill="#000">{cur_price:.2f}</text>'
     )
     # Thin vertical rule at last point
     vline = f'<line x1="{last_x}" y1="{margin_t}" x2="{last_x}" y2="{margin_t + ch}" stroke="#333" stroke-width="0.5" stroke-dasharray="2,2"/>'
@@ -460,10 +460,10 @@ def build_private(ctx):
     stocks_cols = chunk(d["stocks"], 3)
     p2_cols = ""
     for col in stocks_cols:
-        p2_cols += f'<div class="p2-col">{"".join(sc_html(s) for s in col)}</div>'
+        p2_cols += f'<div class="p2-col">{"".join(sc_html(s, meta=False) for s in col)}</div>'
 
     # ── Page 3: ETFs + Bonds + Commodities (3 cols) ──
-    p3_col1 = "".join(sc_html(s) for s in d["etfs"])
+    p3_col1 = "".join(sc_html(s, meta=False) for s in d["etfs"])
     p3_col2 = "".join(sc_html(s, meta=False) for s in d["bonds"])
     p3_col3 = "".join(sc_html(s, meta=False) for s in d["commodities"])
 
@@ -496,10 +496,11 @@ def build_private(ctx):
 /* P2/P3 */
 .p2-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;overflow:hidden}}
 .p2-col{{display:flex;flex-direction:column;overflow:hidden}}
-.sc-tile{{flex:1;display:flex;flex-direction:column;border-bottom:1px solid #1e1e1e;min-height:0}}
+.sc-tile{{flex:1;display:flex;flex-direction:column;border-bottom:1px solid #1e1e1e;min-height:0;overflow:hidden}}
 .sc-tile:last-child{{border-bottom:none}}
-.sc-tile .sc{{flex-shrink:0;padding:5px 0 3px;border-bottom:none}}
-.sc-chart{{flex:1;background:#0d0d0d;border-top:1px solid #1a1a1a;min-height:0;overflow:hidden}}
+.sc-tile .sc{{flex-shrink:0;padding:4px 0 2px;border-bottom:none;background:#111}}
+.sc-tile .sc-mt{{display:flex;flex-wrap:wrap;gap:6px}}
+.sc-chart{{flex:1;min-height:0;overflow:hidden;display:block}}
 /* P4 */
 .p4-g{{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;overflow:hidden;align-content:start}}
 </style></head><body>
