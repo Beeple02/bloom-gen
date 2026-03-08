@@ -72,12 +72,37 @@ def compute_indices(securities):
         {"ticker":"B:CMDTY", "name":"NER Commodities",  "value":avg(buckets["Commodity"]), "desc":"Commodity basket"},
     ]
 
+def make_spark(prices, color, w=200, h=28):
+    """Generate inline SVG sparkline from a price list (oldest to newest)."""
+    if len(prices) < 2:
+        return ""
+    mn, mx = min(prices), max(prices)
+    rng = mx - mn if mx != mn else 1
+    pts = []
+    for i, p in enumerate(prices):
+        x = round(i / (len(prices)-1) * w, 1)
+        y = round(h - ((p - mn) / rng * (h - 4) + 2), 1)
+        pts.append(f"{x},{y}")
+    polyline = " ".join(pts)
+    # fill path: go to bottom-right then bottom-left
+    last_x = round((len(prices)-1) / (len(prices)-1) * w, 1)
+    fill_d = f"M {pts[0]} " + " ".join(f"L {p}" for p in pts[1:]) + f" L {last_x},{h} L 0,{h} Z"
+    return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">'
+            f'<path d="{fill_d}" fill="{color}" opacity="0.08"/>'
+            f'<polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
+            f'</svg>')
+
 def process_sec(s, history):
     t       = s["ticker"]
     price   = fmt(s.get("market_price"))
     derived = s.get("derived") or {}
     chg, chg_pct = price_change(history.get(t), price)
     cls = "up" if chg_pct and chg_pct > 0 else ("dn" if chg_pct and chg_pct < 0 else "fl")
+    # Extract price series for sparkline (oldest first)
+    hist = history.get(t, {})
+    if isinstance(hist, dict): hist = hist.get("data", [])
+    prices_raw = [float(e["price"]) for e in reversed(hist) if isinstance(e, dict) and e.get("price") is not None]
+    if price is not None: prices_raw.append(price)
     return {
         "ticker":  t,
         "name":    s.get("full_name", t),
@@ -90,6 +115,7 @@ def process_sec(s, history):
         "chg":     chg,
         "chg_pct": chg_pct,
         "cls":     cls,
+        "prices":  prices_raw,
     }
 
 def process_ob(book, name_map):
@@ -143,33 +169,35 @@ html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 .ph-time{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333}
 .pf{padding-top:8px;border-top:1px solid #171717;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e;flex-shrink:0;margin-top:auto}
 .pn{position:absolute;bottom:8px;right:12px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e}
-.sh{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#2a2a2a;padding-bottom:6px;border-bottom:1px solid #1a1a1a;margin-bottom:0}
+.sh{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#555;padding-bottom:6px;border-bottom:1px solid #2a2a2a;margin-bottom:0}
 /* security card */
-.sc{padding:8px 0;border-bottom:1px solid #151515}
+.sc{padding:6px 0 4px;border-bottom:1px solid #1e1e1e}
 .sc:last-child{border-bottom:none}
 .sc-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
-.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;letter-spacing:.05em}
+.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#666;letter-spacing:.05em}
 .sc-px{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff;line-height:1}
-.sc-nm{font-size:11px;font-weight:600;color:#666;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-nm{font-size:11px;font-weight:600;color:#aaa;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sc-ch{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;margin-bottom:2px}
-.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#2a2a2a}
+.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#444}
 .sc-mt{display:flex;flex-wrap:wrap;gap:8px}
-.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222}
-.sc-mi span{color:#444}
+.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444}
+.sc-mi span{color:#777}
 .frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.05em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 3px;margin-left:3px;vertical-align:middle}
+/* mini sparkline chart */
+.spark{display:block;width:100%;height:28px;margin-top:3px}
 /* orderbook */
-.ob-card{background:#141414;border:1px solid #1a1a1a;padding:12px 14px}
-.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;letter-spacing:.05em;margin-bottom:2px}
-.ob-nm{font-size:11px;font-weight:600;color:#555;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-card{background:#141414;border:1px solid #252525;padding:12px 14px}
+.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;letter-spacing:.05em;margin-bottom:2px}
+.ob-nm{font-size:11px;font-weight:600;color:#aaa;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ob-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ob-sl{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px}
 .ob-sl.bid{color:#16a34a}.ob-sl.ask{color:#dc2626}
 .ob-lv{font-family:'IBM Plex Mono',monospace;font-size:11px;display:flex;justify-content:space-between;padding:1px 0}
-.ob-p{color:#ccc}.ob-q{color:#2a2a2a}
-.ob-em{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e;font-style:italic}
-.ob-sp{margin-top:7px;padding-top:6px;border-top:1px solid #181818;font-family:'IBM Plex Mono',monospace;font-size:9px;display:flex;justify-content:space-between;color:#2a2a2a}
-.spv{color:#444}.spv.w{color:#d97706}.spv.d{color:#dc2626}
-.ob-depth{margin-top:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222;display:flex;justify-content:space-between}
+.ob-p{color:#ddd}.ob-q{color:#666}
+.ob-em{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;font-style:italic}
+.ob-sp{margin-top:7px;padding-top:6px;border-top:1px solid #222;font-family:'IBM Plex Mono',monospace;font-size:9px;display:flex;justify-content:space-between;color:#555}
+.spv{color:#777}.spv.w{color:#d97706}.spv.d{color:#dc2626}
+.ob-depth{margin-top:4px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;display:flex;justify-content:space-between}
 @media print{.toolbar{display:none}.pages{margin-top:0;padding:0;gap:0}.page{border:none;page-break-after:always}}
 """
 
@@ -179,7 +207,7 @@ def ph(title, date_str, time_str):
 def pf(n, t):
     return f"""<div class="pf"><span>BLOOMBERG LABS · DEMOCRACYCRAFT · NER EXCHANGE · ATLAS MARKET INFRASTRUCTURE</span><span>PAGE {n} OF {t} · CONFIDENTIAL</span></div>"""
 
-def sc_html(s, meta=True):
+def sc_html(s, meta=True, spark=True):
     frz = '<span class="frz">FRZ</span>' if s["frozen"] else ""
     if s["chg_pct"] is not None:
         sign = "+" if s["chg_pct"] > 0 else ""
@@ -197,11 +225,13 @@ def sc_html(s, meta=True):
       <span class="sc-mi">LIQ <span>{s['liq'] if s['liq'] is not None else '—'}</span></span>
       <span class="sc-mi">SHRS <span>{s['shares']}</span></span>
     </div>"""
+    spark_color = "#16a34a" if s["cls"] == "up" else ("#dc2626" if s["cls"] == "dn" else "#444")
+    sp = make_spark(s.get("prices", []), spark_color) if spark else ""
     return f"""<div class="sc">
   <div class="sc-top"><span class="sc-tk">{s['ticker']}{frz}</span><span class="sc-px">{s['price']}</span></div>
   <div class="sc-nm">{s['name']}</div>
   <div class="sc-ch {s['cls']}">{chg_str}</div>
-  {m}
+  {m}{sp}
 </div>"""
 
 def ob_html(ob):
@@ -235,7 +265,8 @@ def toolbar(label):
 def build_public(ctx):
     d = ctx
     all_secs = d["stocks"] + d["etfs"] + d["bonds"] + d["commodities"]
-    movers   = sorted([s for s in all_secs if s["chg_pct"] is not None], key=lambda x: abs(x["chg_pct"]), reverse=True)[:7]
+    # Top 3 movers by abs % change
+    movers = sorted([s for s in all_secs if s["chg_pct"] is not None], key=lambda x: abs(x["chg_pct"]), reverse=True)[:3]
 
     stats_html = ""
     for label, val, sub, col in [
@@ -253,15 +284,22 @@ def build_public(ctx):
         sign  = "+" if s["chg_pct"] > 0 else ""
         arrow = "▲" if s["chg_pct"] > 0 else "▼"
         col   = "#16a34a" if s["chg_pct"] > 0 else "#dc2626"
+        spark_color = "#16a34a" if s["cls"] == "up" else "#dc2626"
+        sp = make_spark(s.get("prices", []), spark_color, w=300, h=36)
         movers_html += f"""<div class="mv">
-      <span class="mv-tk">{s['ticker']}</span>
-      <span class="mv-nm">{s['name']}</span>
-      <span class="mv-px">{s['price']}</span>
-      <span class="mv-ch" style="color:{col}">{arrow} {sign}{s['chg_pct']}%</span>
+      <div class="mv-info">
+        <div class="mv-row1">
+          <span class="mv-tk">{s['ticker']}</span>
+          <span class="mv-px">{s['price']}</span>
+          <span class="mv-ch" style="color:{col}">{arrow} {sign}{s['chg_pct']}%</span>
+        </div>
+        <div class="mv-nm">{s['name']}</div>
+        {sp}
+      </div>
     </div>"""
 
     if not movers_html:
-        movers_html = '<div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#2a2a2a;padding:12px 0">No price history available</div>'
+        movers_html = '<div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#444;padding:12px 0">No price history available</div>'
 
     idx_html = ""
     for i in d["indices"]:
@@ -281,29 +319,31 @@ def build_public(ctx):
 .pub-inner{{flex:1;padding:22px 32px 16px;display:flex;flex-direction:column}}
 .sbar{{display:flex;gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;flex-shrink:0;margin-bottom:14px}}
 .sb{{flex:1;background:#141414;padding:10px 14px}}
-.sb-l{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#2a2a2a;margin-bottom:4px}}
+.sb-l{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#444;margin-bottom:4px}}
 .sb-v{{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#fff}}
-.sb-s{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e;margin-top:2px}}
-.pub-body{{flex:1;display:grid;grid-template-columns:280px 1fr 1fr;gap:24px;overflow:hidden}}
-.hero-col{{display:flex;flex-direction:column;justify-content:center}}
-.hero-tag{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#222;margin-bottom:8px}}
-.hero-title{{font-size:72px;font-weight:700;letter-spacing:-.03em;line-height:.88;color:#fff;margin-bottom:12px}}
-.hero-sub{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222;line-height:1.9}}
-.mv-col{{display:flex;flex-direction:column;overflow:hidden}}
-.mv{{display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #151515;gap:8px}}
+.sb-s{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;margin-top:2px}}
+.pub-body{{flex:1;display:grid;grid-template-columns:260px 1fr 1fr;gap:24px;overflow:hidden}}
+.hero-col{{display:flex;flex-direction:column;justify-content:flex-start;padding-top:4px}}
+.hero-tag{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#444;margin-bottom:10px}}
+.hero-title{{font-size:80px;font-weight:700;letter-spacing:-.03em;line-height:.85;color:#fff;margin-bottom:14px}}
+.hero-sub{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;line-height:1.9}}
+.mv-col{{display:flex;flex-direction:column;overflow:hidden;gap:2px}}
+.mv{{padding:8px 0;border-bottom:1px solid #1e1e1e}}
 .mv:last-child{{border-bottom:none}}
-.mv-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;min-width:44px;flex-shrink:0}}
-.mv-nm{{font-size:10px;font-weight:600;color:#555;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.mv-px{{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#fff;min-width:50px;text-align:right;flex-shrink:0}}
-.mv-ch{{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;min-width:72px;text-align:right;flex-shrink:0}}
+.mv-info{{display:flex;flex-direction:column;gap:2px}}
+.mv-row1{{display:flex;align-items:baseline;gap:8px}}
+.mv-tk{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#777;min-width:44px;flex-shrink:0}}
+.mv-nm{{font-size:10px;font-weight:500;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.mv-px{{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#fff;flex:1}}
+.mv-ch{{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;flex-shrink:0}}
 .idx-col{{display:flex;flex-direction:column;overflow:hidden}}
-.ir{{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #151515}}
+.ir{{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #1e1e1e}}
 .ir:last-child{{border-bottom:none}}
-.ir-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;letter-spacing:.08em;margin-bottom:2px}}
-.ir-nm{{font-size:13px;font-weight:600;color:#888}}
+.ir-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#555;letter-spacing:.08em;margin-bottom:2px}}
+.ir-nm{{font-size:13px;font-weight:600;color:#999}}
 .ir-v{{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:#fff}}
 .warn{{background:#1a0000;border:1px solid #3a0000;color:#dc2626;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:5px 10px;flex-shrink:0;margin-top:8px}}
-.pub-footer{{padding-top:7px;border-top:1px solid #171717;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e;flex-shrink:0}}
+.pub-footer{{padding-top:7px;border-top:1px solid #1e1e1e;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;flex-shrink:0}}
 </style></head><body>
 {toolbar("PUBLIC VERSION · DC #news · Bloomberg Labs")}
 <div style="display:flex;flex-direction:column;align-items:center;padding:12px 0 32px;margin-top:36px;background:#0a0a0a">
@@ -385,21 +425,21 @@ def build_private(ctx):
 {BASE_CSS}
 /* P1 */
 .p1-g{{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:28px;overflow:hidden}}
-.hero-tag{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#222;margin-bottom:8px}}
+.hero-tag{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#444;margin-bottom:8px}}
 .hero-title{{font-size:72px;font-weight:700;letter-spacing:-.03em;line-height:.88;color:#fff;margin-bottom:12px}}
-.hero-sub{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222;line-height:1.9}}
+.hero-sub{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;line-height:1.9}}
 .hs-grid{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;margin-top:auto}}
 .hs{{background:#141414;padding:10px 14px}}
-.hs-l{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#2a2a2a;margin-bottom:4px}}
+.hs-l{{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#444;margin-bottom:4px}}
 .hs-v{{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#fff}}
-.hs-s{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e;margin-top:2px}}
+.hs-s{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;margin-top:2px}}
 .ir2{{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #161616}}
 .ir2:last-child{{border-bottom:none}}
-.ir2-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;letter-spacing:.08em;margin-bottom:2px}}
-.ir2-nm{{font-size:14px;font-weight:600;color:#bbb}}
+.ir2-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#555;letter-spacing:.08em;margin-bottom:2px}}
+.ir2-nm{{font-size:14px;font-weight:600;color:#ccc}}
 .ir2-r{{text-align:right}}
 .ir2-v{{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#fff}}
-.ir2-d{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;margin-top:2px}}
+.ir2-d{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;margin-top:2px}}
 /* P2/P3 */
 .p2-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;overflow:hidden}}
 /* P4 */
