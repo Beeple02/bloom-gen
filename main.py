@@ -73,64 +73,28 @@ def compute_indices(securities):
         {"ticker":"B:CMDTY", "name":"NER Commodities",  "value":avg(buckets["Commodity"]), "desc":"Commodity basket"},
     ]
 
-def make_spark(prices, color, w=400, h=120):
-    """
-    Professional chart: dark bg, subtle horizontal grid lines, clean line,
-    faint gradient fill, current price label pinned to right edge.
-    Uses fixed aspect ratio via viewBox — always looks right regardless of container size.
-    """
+def make_spark(prices, color, w=200, h=28):
+    """Tiny inline sparkline — line + subtle fill, no labels, no grid."""
     if len(prices) < 2:
         return ""
     mn, mx = min(prices), max(prices)
-    rng = mx - mn if mx != mn else mn * 0.05 if mn else 1
-    # 30% vertical padding so line sits comfortably in the middle
-    pad_v = rng * 0.30
-    y_min = mn - pad_v
-    y_max = mx + pad_v
-    y_rng = y_max - y_min
-    # Layout: chart area with right margin for price label
-    margin_r = 42
-    margin_t = 4
-    margin_b = 4
-    cw = w - margin_r  # chart width
-    ch = h - margin_t - margin_b  # chart height
-    def px(i): return round(i / (len(prices) - 1) * cw, 1)
-    def py(p): return round(margin_t + ch - ((p - y_min) / y_rng * ch), 1)
+    rng = mx - mn if mx != mn else mn * 0.1 if mn else 1
+    pad_v = rng * 0.3
+    y_min = mn - pad_v; y_max = mx + pad_v; y_rng = y_max - y_min
+    def px(i): return round(i / (len(prices)-1) * w, 1)
+    def py(p): return round(h - ((p - y_min) / y_rng * h), 1)
     pts = [(px(i), py(p)) for i, p in enumerate(prices)]
-    line_pts = " ".join(f"{x},{y}" for x,y in pts)
-    # Subtle horizontal grid — 3 lines at 25%, 50%, 75%
-    grid = ""
-    for frac in [0.25, 0.5, 0.75]:
-        gy = round(margin_t + ch * frac, 1)
-        p_val = y_max - frac * y_rng
-        grid += (f'<line x1="0" y1="{gy}" x2="{cw}" y2="{gy}" stroke="#333" stroke-width="0.5"/>'
-                 f'<text x="{cw + 3}" y="{gy + 3}" font-family="IBM Plex Mono,monospace" font-size="7" fill="#555">{p_val:.2f}</text>')
-    # Current price label pinned to last point
-    last_x, last_y = pts[-1]
-    cur_price = prices[-1]
-    label_y = max(margin_t + 8, min(h - margin_b - 2, last_y))
-    price_label = (
-        f'<rect x="{cw + 1}" y="{label_y - 8}" width="{margin_r - 2}" height="11" fill="{color}" rx="1"/>'
-        f'<text x="{cw + 3}" y="{label_y + 2}" font-family="IBM Plex Mono,monospace" font-size="8" font-weight="600" fill="#000">{cur_price:.2f}</text>'
-    )
-    # Thin vertical rule at last point
-    vline = f'<line x1="{last_x}" y1="{margin_t}" x2="{last_x}" y2="{margin_t + ch}" stroke="#333" stroke-width="0.5" stroke-dasharray="2,2"/>'
-    # Gradient fill under line
+    line = " ".join(f"{x},{y}" for x,y in pts)
+    fill = line + f" {pts[-1][0]},{h} {pts[0][0]},{h}"
     uid = abs(hash(f"{color}{round(mn,2)}{len(prices)}")) % 99999
-    fill_pts = line_pts + f" {pts[-1][0]},{margin_t+ch} 0,{margin_t+ch}"
     return (
         f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">'
         f'<defs><linearGradient id="g{uid}" x1="0" y1="0" x2="0" y2="1">'
         f'<stop offset="0%" stop-color="{color}" stop-opacity="0.15"/>'
-        f'<stop offset="100%" stop-color="{color}" stop-opacity="0.01"/>'
+        f'<stop offset="100%" stop-color="{color}" stop-opacity="0.0"/>'
         f'</linearGradient></defs>'
-        f'<rect width="{w}" height="{h}" fill="#0d0d0d"/>'
-        f'{grid}'
-        f'{vline}'
-        f'<polygon points="{fill_pts}" fill="url(#g{uid})"/>'
-        f'<polyline points="{line_pts}" fill="none" stroke="{color}" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>'
-        f'<circle cx="{last_x}" cy="{last_y}" r="2" fill="{color}"/>'
-        f'{price_label}'
+        f'<polygon points="{fill}" fill="url(#g{uid})"/>'
+        f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>'
         f'</svg>'
     )
 
@@ -228,10 +192,7 @@ html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 /* mini sparkline chart */
 .spark{display:block;width:100%;height:100%;margin-top:0}
 /* security tile = info card + chart panel (base, overridden per context) */
-.sc-tile{border-bottom:1px solid #1e1e1e}
-.sc-tile:last-child{border-bottom:none}
-.sc-tile .sc{border-bottom:none;padding-bottom:3px}
-.sc-chart{background:#0d0d0d;border-top:1px solid #1a1a1a;overflow:hidden;min-height:0}
+.sc-spark{height:22px;margin-top:3px;overflow:hidden}
 /* orderbook */
 .ob-card{background:#141414;border:1px solid #252525;padding:12px 14px}
 .ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;letter-spacing:.05em;margin-bottom:2px}
@@ -274,17 +235,15 @@ def sc_html(s, meta=True, spark=True):
     </div>"""
     spark_color = "#16a34a" if s["cls"] == "up" else ("#dc2626" if s["cls"] == "dn" else "#888")
     sp = ""
-    if spark:
+    if spark and s.get("prices"):
         svg = make_spark(s.get("prices", []), spark_color)
         if svg:
-            sp = f'<div class="sc-chart">{svg}</div>'
-    return f"""<div class="sc-tile">
-  <div class="sc">
-    <div class="sc-top"><span class="sc-tk">{s['ticker']}{frz}</span><span class="sc-px">{s['price']}</span></div>
-    <div class="sc-nm">{s['name']}</div>
-    <div class="sc-ch {s['cls']}">{chg_str}</div>
-    {m}
-  </div>{sp}
+            sp = f'<div class="sc-spark">{svg}</div>'
+    return f"""<div class="sc">
+  <div class="sc-top"><span class="sc-tk">{s['ticker']}{frz}</span><span class="sc-px">{s['price']}</span></div>
+  <div class="sc-nm">{s['name']}</div>
+  <div class="sc-ch {s['cls']}">{chg_str}</div>
+  {m}{sp}
 </div>"""
 
 def ob_html(ob):
@@ -460,11 +419,11 @@ def build_private(ctx):
     stocks_cols = chunk(d["stocks"], 3)
     p2_cols = ""
     for col in stocks_cols:
-        p2_cols += f'<div class="p2-col">{"".join(sc_html(s, meta=False) for s in col)}</div>'
+        p2_cols += f'<div>{"".join(sc_html(s) for s in col)}</div>'
 
     # ── Page 3: ETFs + Bonds + Commodities (3 cols) ──
-    p3_col1 = "".join(sc_html(s, meta=False) for s in d["etfs"])
-    p3_col2 = "".join(sc_html(s, meta=False) for s in d["bonds"])
+    p3_col1 = "".join(sc_html(s) for s in d["etfs"])
+    p3_col2 = "".join(sc_html(s) for s in d["bonds"])
     p3_col3 = "".join(sc_html(s, meta=False) for s in d["commodities"])
 
     # ── Page 4: Orderbook (3 cols × 4 rows grid) ──
@@ -494,13 +453,7 @@ def build_private(ctx):
 .ir2-v{{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:#fff}}
 .ir2-d{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;margin-top:2px}}
 /* P2/P3 */
-.p2-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;overflow:hidden}}
-.p2-col{{display:flex;flex-direction:column;overflow:hidden}}
-.sc-tile{{flex:1;display:flex;flex-direction:column;border-bottom:1px solid #1e1e1e;min-height:0;overflow:hidden}}
-.sc-tile:last-child{{border-bottom:none}}
-.sc-tile .sc{{flex-shrink:0;padding:4px 0 2px;border-bottom:none;background:#111}}
-.sc-tile .sc-mt{{display:flex;flex-wrap:wrap;gap:6px}}
-.sc-chart{{flex:1;min-height:0;overflow:hidden;display:block}}
+.p2-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;overflow:hidden}}
 /* P4 */
 .p4-g{{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;overflow:hidden;align-content:start}}
 </style></head><body>
