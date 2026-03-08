@@ -184,7 +184,12 @@ html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 .sc-mi span{color:#777}
 .frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.05em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 3px;margin-left:3px;vertical-align:middle}
 /* mini sparkline chart */
-.spark{display:block;width:100%;height:28px;margin-top:3px}
+.spark{display:block;width:100%;height:100%;margin-top:0}
+/* security tile = info card + chart panel */
+.sc-tile{border-bottom:1px solid #1e1e1e}
+.sc-tile:last-child{border-bottom:none}
+.sc-tile .sc{border-bottom:none;padding-bottom:3px}
+.sc-chart{background:#0d0d0d;border-top:1px solid #1a1a1a;height:34px;overflow:hidden}
 /* orderbook */
 .ob-card{background:#141414;border:1px solid #252525;padding:12px 14px}
 .ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;letter-spacing:.05em;margin-bottom:2px}
@@ -226,12 +231,18 @@ def sc_html(s, meta=True, spark=True):
       <span class="sc-mi">SHRS <span>{s['shares']}</span></span>
     </div>"""
     spark_color = "#16a34a" if s["cls"] == "up" else ("#dc2626" if s["cls"] == "dn" else "#444")
-    sp = make_spark(s.get("prices", []), spark_color) if spark else ""
-    return f"""<div class="sc">
-  <div class="sc-top"><span class="sc-tk">{s['ticker']}{frz}</span><span class="sc-px">{s['price']}</span></div>
-  <div class="sc-nm">{s['name']}</div>
-  <div class="sc-ch {s['cls']}">{chg_str}</div>
-  {m}{sp}
+    sp = ""
+    if spark:
+        svg = make_spark(s.get("prices", []), spark_color, w=200, h=32)
+        if svg:
+            sp = f'<div class="sc-chart">{svg}</div>'
+    return f"""<div class="sc-tile">
+  <div class="sc">
+    <div class="sc-top"><span class="sc-tk">{s['ticker']}{frz}</span><span class="sc-px">{s['price']}</span></div>
+    <div class="sc-nm">{s['name']}</div>
+    <div class="sc-ch {s['cls']}">{chg_str}</div>
+    {m}
+  </div>{sp}
 </div>"""
 
 def ob_html(ob):
