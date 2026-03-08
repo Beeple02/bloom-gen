@@ -640,13 +640,23 @@ def api_report():
 @app.route("/debug")
 def debug():
     try:
-        ob  = atlas("/orderbook")
-        h   = atlas("/history/BB?days=7&limit=5")
-        return {"ob_type": str(type(ob)), "ob_len": len(ob) if isinstance(ob, list) else "?",
-                "ob_sample": ob[0] if isinstance(ob, list) and ob else ob,
-                "hist_type": str(type(h)), "hist_sample": h}
+        ob   = atlas("/orderbook")
+        h    = atlas("/history/BB?days=7&limit=5")
+        secs = atlas("/securities?include_derived=true")
+        # Show first NER and first TSE security
+        ner_sample = next((s for s in secs if not str(s.get("ticker","")).startswith("TSE:")), None)
+        tse_sample = next((s for s in secs if str(s.get("ticker","")).startswith("TSE:")), None)
+        return {
+            "ob_len": len(ob) if isinstance(ob, list) else "?",
+            "ob_sample": ob[0] if isinstance(ob, list) and ob else ob,
+            "hist_sample": h,
+            "total_securities": len(secs) if isinstance(secs, list) else "?",
+            "ner_sample": ner_sample,
+            "tse_sample": tse_sample,
+        }
     except Exception as e:
-        return {"error": str(e)}, 500
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}, 500
 
 @app.route("/health")
 def health():
