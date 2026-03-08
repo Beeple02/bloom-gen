@@ -74,36 +74,32 @@ def compute_indices(securities):
     ]
 
 def make_spark(prices, color, w=400, h=60):
-    """Sleek smooth SVG sparkline — cubic bezier curves, subtle gradient fill, horizontal gridlines."""
+    """Straight-line chart with Y-axis padded to ~20% of range so the line never slams top/bottom."""
     if len(prices) < 2:
         return ""
     mn, mx = min(prices), max(prices)
-    rng = mx - mn if mx != mn else max(mn * 0.02, 1)
-    pad = 6
-    def px(i): return round(i / (len(prices)-1) * w, 1)
-    def py(p): return round(h - pad - ((p - mn) / rng * (h - pad*2)), 1)
-    coords = [(px(i), py(p)) for i, p in enumerate(prices)]
-    # Build smooth cubic bezier path
-    d = f"M {coords[0][0]},{coords[0][1]}"
-    for i in range(1, len(coords)):
-        x0,y0 = coords[i-1]; x1,y1 = coords[i]
-        cx = round((x0+x1)/2, 1)
-        d += f" C {cx},{y0} {cx},{y1} {x1},{y1}"
-    # Fill path
-    fd = d + f" L {coords[-1][0]},{h} L {coords[0][0]},{h} Z"
-    uid = abs(hash(color + str(len(prices)))) % 100000
-    # Subtle horizontal mid-line
-    mid_y = round(h/2, 1)
-    grid = f'<line x1="0" y1="{mid_y}" x2="{w}" y2="{mid_y}" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>'
+    rng = mx - mn if mx != mn else mn * 0.1 if mn else 1
+    # Pad Y range by 25% on each side so chart never looks absurdly scaled
+    pad_v = rng * 0.35
+    y_min = mn - pad_v
+    y_max = mx + pad_v
+    y_rng = y_max - y_min
+    pad_h = 2  # horizontal pixel padding
+    def px(i): return round(pad_h + i / (len(prices)-1) * (w - pad_h*2), 1)
+    def py(p): return round(h - ((p - y_min) / y_rng * h), 1)
+    pts = " ".join(f"{px(i)},{py(p)}" for i, p in enumerate(prices))
+    uid = abs(hash(color + str(round(mn,1)))) % 100000
+    # fill under line
+    last_x = px(len(prices)-1); first_x = px(0)
+    fill_pts = pts + f" {last_x},{h} {first_x},{h}"
     return (
         f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">'
         f'<defs><linearGradient id="g{uid}" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0%" stop-color="{color}" stop-opacity="0.18"/>'
-        f'<stop offset="100%" stop-color="{color}" stop-opacity="0.01"/>'
+        f'<stop offset="0%" stop-color="{color}" stop-opacity="0.12"/>'
+        f'<stop offset="100%" stop-color="{color}" stop-opacity="0.0"/>'
         f'</linearGradient></defs>'
-        f'{grid}'
-        f'<path d="{fd}" fill="url(#g{uid})"/>'
-        f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<polygon points="{fill_pts}" fill="url(#g{uid})"/>'
+        f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>'
         f'</svg>'
     )
 
