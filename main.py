@@ -277,21 +277,21 @@ html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 .exb{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:7px;font-weight:700;letter-spacing:.04em;padding:1px 4px;vertical-align:middle;margin-left:3px;border-radius:1px}
 .exb.NER{background:#0d1f15;color:#16a34a;border:1px solid #16a34a44}
 .exb.TSE{background:#0d1525;color:#3b82f6;border:1px solid #3b82f644}
-.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#333}
+.up{color:#16a34a}.dn{color:#dc2626}.fl{color:#666}
 /* security card */
 .sc{padding:5px 0 3px;border-bottom:1px solid #171717}
 .sc:last-child{border-bottom:none}
 .sc-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
-.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#555;letter-spacing:.04em}
+.sc-tk{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#888;letter-spacing:.04em}
 .sc-px{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:#fff;line-height:1}
-.sc-nm{font-size:10px;font-weight:600;color:#777;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-nm{font-size:11px;font-weight:600;color:#aaa;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sc-ch{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;margin-bottom:1px}
 .sc-mt{display:flex;flex-wrap:wrap;gap:5px;margin-top:1px}
-.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#2a2a2a}
-.sc-mi span{color:#555}
+.sc-mi{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#555}
+.sc-mi span{color:#bbb}
 .sc-row2{display:flex;gap:5px;flex-wrap:wrap;margin-top:1px}
-.sc-tag{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#2a2a2a}
-.sc-tag span{color:#444}
+.sc-tag{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#555}
+.sc-tag span{color:#bbb}
 .frz{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:7px;letter-spacing:.05em;text-transform:uppercase;border:1px solid #dc2626;color:#dc2626;padding:0 3px;margin-left:3px;vertical-align:middle}
 .sc-spark{height:18px;margin-top:2px;overflow:hidden}
 /* dominance bar */
@@ -299,17 +299,17 @@ html,body{background:#111;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif}
 .dom-bar{height:100%;border-radius:1px;transition:width .3s}
 /* orderbook */
 .ob-card{background:#0f0f0f;border:1px solid #1a1a1a;padding:9px 11px}
-.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#666;letter-spacing:.04em;margin-bottom:1px}
-.ob-nm{font-size:9px;font-weight:600;color:#888;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-tk{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;letter-spacing:.04em;margin-bottom:1px}
+.ob-nm{font-size:10px;font-weight:600;color:#bbb;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ob-cols{display:grid;grid-template-columns:1fr 1fr;gap:5px}
 .ob-sl{font-family:'IBM Plex Mono',monospace;font-size:7px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px}
 .ob-sl.bid{color:#16a34a}.ob-sl.ask{color:#dc2626}
-.ob-lv{font-family:'IBM Plex Mono',monospace;font-size:9px;display:flex;justify-content:space-between;padding:1px 0}
-.ob-p{color:#bbb}.ob-q{color:#444}
+.ob-lv{font-family:'IBM Plex Mono',monospace;font-size:10px;display:flex;justify-content:space-between;padding:1px 0}
+.ob-p{color:#e5e5e5}.ob-q{color:#777}
 .ob-em{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#222;font-style:italic}
-.ob-sp{margin-top:4px;padding-top:3px;border-top:1px solid #161616;font-family:'IBM Plex Mono',monospace;font-size:8px;display:flex;justify-content:space-between;color:#333}
+.ob-sp{margin-top:4px;padding-top:3px;border-top:1px solid #161616;font-family:'IBM Plex Mono',monospace;font-size:9px;display:flex;justify-content:space-between;color:#666}
 .spv{color:#555}.spv.w{color:#d97706}.spv.d{color:#dc2626}
-.ob-depth{margin-top:2px;font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#2a2a2a;display:flex;justify-content:space-between}
+.ob-depth{margin-top:2px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#555;display:flex;justify-content:space-between}
 @media print{.toolbar{display:none}.pages{margin-top:0;padding:0;gap:0}.page{border:none;page-break-after:always}}
 """
 
@@ -327,7 +327,7 @@ def exb(exchange):
     return f'<span class="exb {exchange}">{exchange}</span>'
 
 def sc_html(s, meta=True, spark=True, extended=False):
-    """Security card. extended=True adds hi/lo/range/trade data/momentum/dominance."""
+    """Compact security card — used on public page and P4 columns."""
     frz   = '<span class="frz">FRZ</span>' if s["frozen"] else ""
     badge = exb(s["exchange"])
     if s["chg_pct"] is not None:
@@ -346,56 +346,6 @@ def sc_html(s, meta=True, spark=True, extended=False):
                      f'<span class="sc-mi">SHRS <span>{s["shares"]}</span></span>'
                      f'</div>')
 
-    ext_html = ""
-    if extended:
-        # Row 1: Hi/Lo/Range
-        hi  = fmts(s.get("hi7"))
-        lo  = fmts(s.get("lo7"))
-        rng = fmts(s.get("rng7"))
-        # Row 2: Trade count, avg size, total volume
-        tc  = s.get("trade_count",0)
-        avt = fmts(s.get("avg_vol_trade"))
-        tvol= fmtbig(s.get("total_vol7"))
-        # Row 3: Momentum
-        mom_pct = s.get("mom_pct")
-        mom_cls = s.get("mom_cls","fl")
-        mom_sign = "+" if mom_pct and mom_pct>0 else ""
-        mom_str = f'{mom_sign}{mom_pct}%' if mom_pct is not None else "—"
-        # Row 4: Market cap + dominance bar
-        mcap_str  = s.get("mcap_fmt","—")
-        dom       = s.get("dominance")
-        dom_str   = f'{dom}%' if dom is not None else "—"
-        dom_w     = min(100, dom) if dom else 0
-        bar_color = "#3b82f6" if s["exchange"]=="TSE" else "#16a34a"
-        # Shareholders + last trade
-        holders = s.get("shareholders")
-        holders_str = f"{int(holders):,}" if holders else "—"
-        last = s.get("last_trade","—")
-        updated = s.get("updated_at","—")
-
-        ext_html = (
-            f'<div class="sc-row2">'
-            f'<span class="sc-tag">7d HI <span>{hi}</span></span>'
-            f'<span class="sc-tag">LO <span>{lo}</span></span>'
-            f'<span class="sc-tag">RNG <span>{rng}</span></span>'
-            f'</div>'
-            f'<div class="sc-row2">'
-            f'<span class="sc-tag">TRADES <span>{tc}</span></span>'
-            f'<span class="sc-tag">AVG SIZE <span>{avt}</span></span>'
-            f'<span class="sc-tag">VOL7 <span>{tvol}</span></span>'
-            f'</div>'
-            f'<div class="sc-row2">'
-            f'<span class="sc-tag">MCAP <span>{mcap_str}</span></span>'
-            f'<span class="sc-tag">DOM <span style="color:{bar_color}">{dom_str}</span></span>'
-            f'<span class="sc-tag">HOLDERS <span>{holders_str}</span></span>'
-            f'</div>'
-            f'<div class="sc-row2">'
-            f'<span class="sc-tag">MOM24h <span class="{mom_cls}">{mom_str}</span></span>'
-            f'<span class="sc-tag">LAST TRD <span>{last}</span></span>'
-            f'</div>'
-            f'<div class="dom-bar-wrap"><div class="dom-bar" style="width:{dom_w}%;background:{bar_color}22;border-right:1px solid {bar_color}"></div></div>'
-        )
-
     sp = ""
     if spark and s.get("prices"):
         sc = "#16a34a" if s["cls"]=="up" else ("#dc2626" if s["cls"]=="dn" else "#555")
@@ -407,7 +357,88 @@ def sc_html(s, meta=True, spark=True, extended=False):
             f'<span class="sc-px">{s["price_str"]}</span></div>'
             f'<div class="sc-nm">{s["name"]}</div>'
             f'<div class="sc-ch {s["cls"]}">{chg_str}</div>'
-            f'{meta_html}{ext_html}{sp}</div>')
+            f'{meta_html}{sp}</div>')
+
+def sc_row_html(s):
+    """Full-width table row for P2/P3 stock pages — readable sizes, all data visible."""
+    frz   = ' <span class="frz">FRZ</span>' if s["frozen"] else ""
+    badge = exb(s["exchange"])
+    bar_color = "#3b82f6" if s["exchange"]=="TSE" else "#16a34a"
+
+    if s["chg_pct"] is not None:
+        sign  = "+" if s["chg_pct"]>0 else ""
+        sign2 = "+" if s["chg"] and s["chg"]>0 else ""
+        chg_str  = f"{sign}{s['chg_pct']}%"
+        chg2_str = f"({sign2}{s['chg']})" if s["chg"] is not None else ""
+    else:
+        chg_str = "—"; chg2_str = ""
+
+    mom_pct = s.get("mom_pct")
+    mom_cls = s.get("mom_cls","fl")
+    mom_sign = "+" if mom_pct and mom_pct>0 else ""
+    mom_str = f'{mom_sign}{mom_pct}%' if mom_pct is not None else "—"
+
+    dom     = s.get("dominance")
+    dom_w   = min(100, dom) if dom else 0
+    dom_str = f'{dom}%' if dom is not None else "—"
+
+    holders = s.get("shareholders")
+    holders_str = f"{int(holders):,}" if holders else "—"
+
+    sp = ""
+    if s.get("prices"):
+        sc = "#16a34a" if s["cls"]=="up" else ("#dc2626" if s["cls"]=="dn" else "#444")
+        svg = make_spark(s["prices"], sc, w=120, h=28)
+        if svg: sp = svg
+
+    return (
+        f'<div class="sr">'
+        # Left: ticker + name + spark
+        f'<div class="sr-id">'
+        f'  <div class="sr-tk">{s["display_ticker"]}{badge}{frz}</div>'
+        f'  <div class="sr-nm">{s["name"]}</div>'
+        f'  <div class="sr-spark">{sp}</div>'
+        f'</div>'
+        # Price + change
+        f'<div class="sr-px">'
+        f'  <div class="sr-price">{s["price_str"]}</div>'
+        f'  <div class="sr-chg {s["cls"]}">{chg_str}</div>'
+        f'  <div class="sr-chg2 {s["cls"]}">{chg2_str}</div>'
+        f'</div>'
+        # Range
+        f'<div class="sr-blk">'
+        f'  <div class="sr-lbl">7d High</div><div class="sr-val">{fmts(s.get("hi7"))}</div>'
+        f'  <div class="sr-lbl">7d Low</div><div class="sr-val">{fmts(s.get("lo7"))}</div>'
+        f'  <div class="sr-lbl">Range</div><div class="sr-val">{fmts(s.get("rng7"))}</div>'
+        f'</div>'
+        # Volume / trades
+        f'<div class="sr-blk">'
+        f'  <div class="sr-lbl">Trades</div><div class="sr-val">{s.get("trade_count",0)}</div>'
+        f'  <div class="sr-lbl">Avg Size</div><div class="sr-val">{fmts(s.get("avg_vol_trade"))}</div>'
+        f'  <div class="sr-lbl">Vol 7d</div><div class="sr-val">{fmtbig(s.get("total_vol7"))}</div>'
+        f'</div>'
+        # VWAP / liquidity / vol
+        f'<div class="sr-blk">'
+        f'  <div class="sr-lbl">VWAP 7d</div><div class="sr-val">{fmts(s["vwap7"])}</div>'
+        f'  <div class="sr-lbl">VWAP 24h</div><div class="sr-val">{fmts(s["vwap24"])}</div>'
+        f'  <div class="sr-lbl">Mom 24h</div><div class="sr-val {mom_cls}">{mom_str}</div>'
+        f'</div>'
+        # Market stats
+        f'<div class="sr-blk">'
+        f'  <div class="sr-lbl">Mkt Cap</div><div class="sr-val">{s.get("mcap_fmt","—")}</div>'
+        f'  <div class="sr-lbl">Holders</div><div class="sr-val">{holders_str}</div>'
+        f'  <div class="sr-lbl">Liq Score</div><div class="sr-val">{fmts(s["liq"])}</div>'
+        f'</div>'
+        # Dominance bar
+        f'<div class="sr-dom">'
+        f'  <div class="sr-lbl">Dominance</div>'
+        f'  <div class="sr-val" style="color:{bar_color}">{dom_str}</div>'
+        f'  <div class="sr-dombar"><div style="width:{dom_w}%;background:{bar_color};height:100%;border-radius:1px"></div></div>'
+        f'  <div class="sr-lbl" style="margin-top:4px">Volatility</div>'
+        f'  <div class="sr-val">{fmts(s["vol7"])}</div>'
+        f'</div>'
+        f'</div>'
+    )
 
 def ob_html(ob):
     badge = exb(ob["exchange"])
@@ -621,26 +652,24 @@ def build_private(ctx):
                          f'<div class="ir2-r"><div class="ir2-v" style="color:#3b82f6;font-size:17px">{v}</div>'
                          f'<div class="ir2-d">{i["desc"]}</div></div></div>')
 
-    # ── P2: NER Stocks (extended cards) ──────────────────────────────────────
+    # ── P2: NER Stocks (table rows) ───────────────────────────────────────────
     ner_stocks = [s for s in d["stocks"] if s["exchange"]=="NER"]
-    ner_cols   = chunk(ner_stocks, 3)
-    p2_html    = "".join(f'<div>{"".join(sc_html(s, extended=True) for s in col)}</div>' for col in ner_cols)
+    p2_html    = "".join(sc_row_html(s) for s in ner_stocks) or '<div class="sc-empty">No NER stocks</div>'
 
-    # ── P3: TSE Stocks (extended cards) ──────────────────────────────────────
+    # ── P3: TSE Stocks (table rows) ───────────────────────────────────────────
     tse_stocks = [s for s in d["stocks"] if s["exchange"]=="TSE"]
-    tse_cols   = chunk(tse_stocks, 3)
-    p3_html    = "".join(f'<div>{"".join(sc_html(s, extended=True) for s in col)}</div>' for col in tse_cols)
+    p3_html    = "".join(sc_row_html(s) for s in tse_stocks) or '<div class="sc-empty">No TSE stocks</div>'
 
-    # ── P4: ETFs / Bonds / Commodities ───────────────────────────────────────
+    # ── P4: ETFs / Bonds / Commodities (table rows per column) ───────────────
     ner_etfs  = [s for s in d["etfs"]        if s["exchange"]=="NER"]
     tse_etfs  = [s for s in d["etfs"]        if s["exchange"]=="TSE"]
     ner_bonds = [s for s in d["bonds"]       if s["exchange"]=="NER"]
     tse_bonds = [s for s in d["bonds"]       if s["exchange"]=="TSE"]
     ner_cmds  = [s for s in d["commodities"] if s["exchange"]=="NER"]
     tse_cmds  = [s for s in d["commodities"] if s["exchange"]=="TSE"]
-    p4_etfs   = "".join(sc_html(s, extended=True) for s in ner_etfs+tse_etfs)   or '<div class="sc-empty">No data</div>'
-    p4_bonds  = "".join(sc_html(s, extended=True) for s in ner_bonds+tse_bonds) or '<div class="sc-empty">No data</div>'
-    p4_cmds   = "".join(sc_html(s, extended=True) for s in ner_cmds+tse_cmds)   or '<div class="sc-empty">No data</div>'
+    p4_etfs   = "".join(sc_html(s) for s in ner_etfs+tse_etfs)   or '<div class="sc-empty">No data</div>'
+    p4_bonds  = "".join(sc_html(s) for s in ner_bonds+tse_bonds) or '<div class="sc-empty">No data</div>'
+    p4_cmds   = "".join(sc_html(s) for s in ner_cmds+tse_cmds)   or '<div class="sc-empty">No data</div>'
 
     # ── P5: Market Movers ────────────────────────────────────────────────────
     with_chg = [s for s in all_secs if s["chg_pct"] is not None]
@@ -790,49 +819,69 @@ def build_private(ctx):
 .hero-sub{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#2a2a2a;line-height:2.0}}
 .hs-grid{{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;margin-top:auto}}
 .hs{{background:#0f0f0f;padding:8px 12px}}
-.hs-l{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#2a2a2a;margin-bottom:2px}}
+.hs-l{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#555;margin-bottom:2px}}
 .hs-v{{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#fff}}
-.hs-s{{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#222;margin-top:1px}}
+.hs-s{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#444;margin-top:1px}}
 .ir2{{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #131313}}
 .ir2:last-child{{border-bottom:none}}
-.ir2-tk{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#333;letter-spacing:.07em;margin-bottom:1px}}
-.ir2-nm{{font-size:11px;font-weight:600;color:#aaa}}
+.ir2-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#666;letter-spacing:.07em;margin-bottom:1px}}
+.ir2-nm{{font-size:11px;font-weight:600;color:#ccc}}
 .ir2-r{{text-align:right}}
 .ir2-v{{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:#fff}}
-.ir2-d{{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#2a2a2a;margin-top:1px}}
-/* P2/P3/P4 */
-.p23-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;overflow:hidden}}
-.sc-empty{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#222;padding:8px 0}}
-.p4-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;overflow:hidden}}
+.ir2-d{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#555;margin-top:1px}}
+/* P2/P3/P4 table rows */
+.p23-wrap{{flex:1;overflow:hidden;display:flex;flex-direction:column}}
+.sr-hdr{{display:grid;grid-template-columns:200px 110px 110px 110px 110px 110px 100px;gap:0;border-bottom:1px solid #2a2a2a;padding:0 0 5px;flex-shrink:0}}
+.sr-hdr span{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#333;text-align:right}}
+.sr-hdr span:first-child{{text-align:left}}
+.sr-rows{{flex:1;overflow:hidden;display:flex;flex-direction:column}}
+.sr{{display:grid;grid-template-columns:200px 110px 110px 110px 110px 110px 100px;gap:0;border-bottom:1px solid #1a1a1a;padding:5px 0;align-items:start}}
+.sr:last-child{{border-bottom:none}}
+.sr-id{{display:flex;flex-direction:column;gap:1px;padding-right:12px}}
+.sr-tk{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#bbb;letter-spacing:.03em;font-weight:600}}
+.sr-nm{{font-size:10px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:188px}}
+.sr-spark{{height:22px;margin-top:2px}}
+.sr-px{{text-align:right;padding-right:10px}}
+.sr-price{{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:700;color:#fff;line-height:1;margin-bottom:1px}}
+.sr-chg{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;line-height:1.2}}
+.sr-chg2{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#555}}
+.sr-blk{{text-align:right;padding-right:10px;display:grid;grid-template-columns:1fr 1fr;row-gap:1px;column-gap:4px}}
+.sr-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#444;text-align:right}}
+.sr-val{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#ccc;font-weight:500;text-align:right}}
+.sr-dom{{text-align:right;padding-right:6px}}
+.sr-dombar{{height:3px;background:#1a1a1a;border-radius:1px;overflow:hidden;margin-top:2px;margin-bottom:2px}}
+.sc-empty{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333;padding:12px 0}}
+/* P4 3-col */
+.p4-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;overflow:hidden}}
 .p4-col{{display:flex;flex-direction:column;overflow:hidden}}
 /* P5 movers */
 .p5-g{{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:18px;overflow:hidden}}
 .mrow{{display:grid;grid-template-columns:22px 52px 1fr 56px 68px 48px 1fr 150px;align-items:center;gap:5px;padding:5px 0;border-bottom:1px solid #141414}}
 .mrow:last-child{{border-bottom:none}}
 .mrow-rank{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700}}
-.mrow-tk{{font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#777}}
-.mrow-nm{{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.mrow-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#bbb}}
+.mrow-nm{{font-size:9px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .mrow-px{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#fff;text-align:right}}
 .mrow-ch{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;text-align:right}}
 .mrow-abs{{font-family:'IBM Plex Mono',monospace;font-size:9px;text-align:right}}
-.mrow-meta{{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#2a2a2a;padding-left:4px;white-space:nowrap;overflow:hidden}}
+.mrow-meta{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#666;padding-left:4px;white-space:nowrap;overflow:hidden}}
 .mrow-empty{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#1e1e1e;padding:10px 0}}
 /* P6 microstructure */
 .p6-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:12px;overflow:hidden}}
 .micro-col{{display:flex;flex-direction:column;overflow:hidden}}
 .mr{{display:flex;align-items:center;padding:3px 0;border-bottom:1px solid #131313;gap:4px}}
 .mr:last-child{{border-bottom:none}}
-.mr-tk{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#666;flex-shrink:0;min-width:32px}}
-.mr-nm{{font-size:8.5px;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.mr-v{{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#888;flex-shrink:0;text-align:right;min-width:48px}}
+.mr-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#aaa;flex-shrink:0;min-width:32px}}
+.mr-nm{{font-size:9px;color:#777;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.mr-v{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:#e5e5e5;flex-shrink:0;text-align:right;min-width:48px}}
 .mr-empty{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#1e1e1e;padding:6px 0}}
 /* P7 volume */
 .p7-g{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;overflow:hidden}}
 .vrow{{display:grid;grid-template-columns:36px 1fr 50px;align-items:center;gap:5px;padding:4px 0;border-bottom:1px solid #131313}}
 .vrow:last-child{{border-bottom:none}}
-.vrow-tk{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#666}}
-.vrow-nm{{font-size:8.5px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.vrow-v{{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#aaa;text-align:right}}
+.vrow-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#aaa}}
+.vrow-nm{{font-size:9px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.vrow-v{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:#e5e5e5;text-align:right}}
 .vrow-bar-wrap{{grid-column:1/-1;height:2px;background:#161616;border-radius:1px;overflow:hidden}}
 .vrow-bar{{height:100%;border-radius:1px}}
 /* P8 orderbook */
@@ -842,8 +891,8 @@ def build_private(ctx):
 .xs-head{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding-bottom:7px;border-bottom:1px solid #1a1a1a;margin-bottom:3px}}
 .xs-row{{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #111}}
 .xs-row:last-child{{border-bottom:none}}
-.xs-l{{font-family:'IBM Plex Mono',monospace;font-size:8.5px;color:#333}}
-.xs-v{{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#888}}
+.xs-l{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#777}}
+.xs-v{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:#e5e5e5}}
 /* closing */
 .close-inner{{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center}}
 </style></head><body>
@@ -878,14 +927,24 @@ def build_private(ctx):
 <!-- ═══ P2: NER Stocks ═══ -->
 <div class="page"><div class="pi">
   {ph("Securities · NER Stocks", ds, ts)}
-  <div class="p23-g">{p2_html or '<div class="sc-empty" style="grid-column:1/-1">No NER stocks</div>'}</div>
+  <div class="p23-wrap">
+    <div class="sr-hdr">
+      <span>Security</span><span>Price / Δ</span><span>7d Range</span><span>Volume</span><span>VWAP</span><span>Mkt Stats</span><span>Dominance</span>
+    </div>
+    <div class="sr-rows">{p2_html}</div>
+  </div>
   {pf(2,T)}
 </div><div class="pn">2/{T}</div></div>
 
 <!-- ═══ P3: TSE Stocks ═══ -->
 <div class="page"><div class="pi">
   {ph("Securities · TSE Stocks", ds, ts)}
-  <div class="p23-g">{p3_html or '<div class="sc-empty" style="grid-column:1/-1">No TSE stocks</div>'}</div>
+  <div class="p23-wrap">
+    <div class="sr-hdr">
+      <span>Security</span><span>Price / Δ</span><span>7d Range</span><span>Volume</span><span>VWAP</span><span>Mkt Stats</span><span>Dominance</span>
+    </div>
+    <div class="sr-rows">{p3_html}</div>
+  </div>
   {pf(3,T)}
 </div><div class="pn">3/{T}</div></div>
 
@@ -893,9 +952,18 @@ def build_private(ctx):
 <div class="page"><div class="pi">
   {ph("Securities · Funds · Fixed Income · Commodities", ds, ts)}
   <div class="p4-g">
-    <div class="p4-col"><div class="sh" style="margin-bottom:0">// ETFs &amp; Funds</div>{p4_etfs}</div>
-    <div class="p4-col"><div class="sh" style="margin-bottom:0">// Fixed Income</div>{p4_bonds}</div>
-    <div class="p4-col"><div class="sh" style="margin-bottom:0">// Commodities</div>{p4_cmds}</div>
+    <div class="p4-col">
+      <div class="sh" style="margin-bottom:6px">// ETFs &amp; Funds</div>
+      {p4_etfs}
+    </div>
+    <div class="p4-col">
+      <div class="sh" style="margin-bottom:6px">// Fixed Income</div>
+      {p4_bonds}
+    </div>
+    <div class="p4-col">
+      <div class="sh" style="margin-bottom:6px">// Commodities</div>
+      {p4_cmds}
+    </div>
   </div>
   {pf(4,T)}
 </div><div class="pn">4/{T}</div></div>
