@@ -552,7 +552,12 @@ def build_public(ctx):
 .ir:last-child{{border-bottom:none}}
 .ir-tk{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#333;letter-spacing:.05em}}
 .ir-v{{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:#fff}}
-.pub-footer{{padding-top:5px;border-top:1px solid #171717;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#222;flex-shrink:0}}
+.pub-footer{{padding-top:4px;border-top:1px solid #171717;display:flex;justify-content:space-between;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#222;flex-shrink:0}}
+.volt-strip{{display:flex;align-items:center;gap:8px;padding-top:4px;border-top:1px solid #1e1e1e;flex-shrink:0;margin-top:2px}}
+.volt-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#555;flex-shrink:0}}
+.volt-logo{{font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:700;color:#fff;letter-spacing:-.02em;flex-shrink:0}}
+.volt-sep{{width:1px;height:10px;background:#2a2a2a;flex-shrink:0}}
+.volt-tag{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#666;flex:1}}
 </style></head><body>
 {toolbar("PUBLIC VERSION · DC #news · Bloomberg Labs")}
 <div style="display:flex;flex-direction:column;align-items:center;padding:12px 0 32px;margin-top:36px;background:#0a0a0a">
@@ -578,6 +583,12 @@ def build_public(ctx):
   <div class="pub-footer">
     <span>BLOOMBERG LABS · DEMOCRACYCRAFT · NER &amp; TSE · ATLAS MARKET INFRASTRUCTURE</span>
     <span>{d['date_str']} · {d['time_str']} UTC · CONFIDENTIAL</span>
+  </div>
+  <div class="volt-strip">
+    <span class="volt-lbl">Sponsored by</span>
+    <span class="volt-logo">volt</span>
+    <span class="volt-sep"></span>
+    <span class="volt-tag">This article was sponsored by Volt, a safe bank with a proven track record by being 1 of only 2 major banks surviving the financial crisis.</span>
   </div>
 </div></div>
 </div></body></html>"""
