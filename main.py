@@ -1467,132 +1467,173 @@ def build_weekly(ctx):
                     f'<div class="vs-stat" style="color:#16a34a">σ = {fmts(week_stable["vol7"])}</div>'
                     f'</div>')
 
-    # ── RENDER ────────────────────────────────────────────────────────────────
+    # ── RENDER — single 1280×720 page ────────────────────────────────────────
+
+    # Stats strip
+    ner_sign = "+" if ner_week_avg and ner_week_avg>0 else ""
+    tse_sign = "+" if tse_week_avg and tse_week_avg>0 else ""
+    stat_items = [
+        ("NER Avg Δ",    f'{ner_sign}{ner_week_avg}%' if ner_week_avg is not None else "—",
+         "color:#16a34a" if ner_week_avg and ner_week_avg>0 else "color:#dc2626"),
+        ("TSE Avg Δ",    f'{tse_sign}{tse_week_avg}%' if tse_week_avg is not None else "—",
+         "color:#3b82f6"),
+        ("Total Trades", str(total_trades), ""),
+        ("Total Volume", fmtbig(total_vol),  ""),
+        ("Avg Liquidity",str(avg_liq) if avg_liq else "—", ""),
+        ("Ghost Secs",   str(len(ghosts)),
+         "color:#d97706" if ghosts else "color:#16a34a"),
+    ]
+    stats_html = "".join(
+        f'<div class="ws"><div class="ws-l">{l}</div><div class="ws-v" style="{c}">{v}</div></div>'
+        for l,v,c in stat_items
+    )
+
+    # Winner / loser hero cards
+    def hero(s, label, color):
+        if not s:
+            return (f'<div class="wc" style="border-left:2px solid {color}22">'
+                    f'<div class="wc-lbl">{label}</div>'
+                    f'<div class="wc-none">No data</div></div>')
+        wc   = s.get("week_chg_pct")
+        sign = "+" if wc and wc>0 else ""
+        arrow= "▲" if wc and wc>0 else "▼"
+        sp   = make_spark(s.get("prices",[]), color, w=220, h=40)
+        return (f'<div class="wc" style="border-left:2px solid {color}44">'
+                f'<div class="wc-lbl">{label}</div>'
+                f'<div class="wc-tk">{s["display_ticker"]}{exb(s["exchange"])}</div>'
+                f'<div class="wc-nm">{s["name"]}</div>'
+                f'<div class="wc-spark">{sp}</div>'
+                f'<div class="wc-chg" style="color:{color}">{arrow} {sign}{wc}%</div>'
+                f'<div class="wc-close">Close {s["price_str"]}</div>'
+                f'</div>')
+
+    winner_html = hero(week_winner, "Best of the Week",  "#16a34a")
+    loser_html  = hero(week_loser,  "Worst of the Week", "#dc2626")
+
+    # Exchange battle
+    def exch_vs():
+        if ner_week_avg is None and tse_week_avg is None: return ""
+        na = ner_week_avg or 0; ta = tse_week_avg or 0
+        ns = "+" if na>0 else ""; ts_ = "+" if ta>0 else ""
+        nc = "#16a34a" if na>ta else "#555"
+        tc = "#3b82f6" if ta>na else "#555"
+        return (f'<div class="xvs">'
+                f'<div class="xvs-ex" style="color:{nc}">NER<div class="xvs-v" style="color:{nc}">{ns}{na}%</div></div>'
+                f'<div class="xvs-sep">vs</div>'
+                f'<div class="xvs-ex" style="color:{tc}">TSE<div class="xvs-v" style="color:{tc}">{ts_}{ta}%</div></div>'
+                f'</div>')
+
+    # Performance table — top 8 by absolute change
+    sorted_perf = sorted(with_wchg, key=lambda x: x["week_chg_pct"], reverse=True)
+    def perf_row(s, rank):
+        wc   = s["week_chg_pct"]; wca = s["week_chg"]
+        sign = "+" if wc>0 else ""
+        col  = "#16a34a" if wc>0 else "#dc2626"
+        sp   = make_spark(s.get("prices",[]), col, w=100, h=18)
+        sw, _= max_daily_swing(s)
+        rev  = detect_reversal(s)
+        tags = []
+        if sw: tags.append(f'<span class="ptag">↕ {sw}%</span>')
+        if rev: tags.append(f'<span class="ptag" style="color:#d97706">↩ {rev[0]}</span>')
+        if s.get("trade_count",0)<=1: tags.append('<span class="ptag" style="color:#444">GHOST</span>')
+        return (f'<div class="pr">'
+                f'<span class="pr-rk" style="color:{col}">{rank}</span>'
+                f'<span class="pr-tk">{s["display_ticker"]}{exb(s["exchange"])}</span>'
+                f'<span class="pr-nm">{s["name"]}</span>'
+                f'<div class="pr-sp">{sp}</div>'
+                f'<span class="pr-op" >{fmts(s["prices"][0]) if s.get("prices") else "—"}</span>'
+                f'<span class="pr-cl">{s["price_str"]}</span>'
+                f'<span class="pr-ch" style="color:{col}">{sign}{wc}%</span>'
+                f'<span class="pr-ab" style="color:{col}">{sign}{wca}</span>'
+                f'<span class="pr-tg">{"".join(tags)}</span>'
+                f'</div>')
+
+    perf_html = "".join(perf_row(s,i+1) for i,s in enumerate(sorted_perf[:8]))
+
+    # Ghost pill list
+    ghost_pills = "".join(
+        f'<span style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#666;'
+        f'background:#1a1a1a;padding:2px 6px;border:1px solid #2a2a2a">'
+        f'{s["display_ticker"]} {exb(s["exchange"])}</span>'
+        for s in ghosts
+    ) if ghosts else '<span style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#16a34a">All active</span>'
+
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <title>Bloomberg Labs — Weekly Wrap — {ds}</title>{FONTS}
 <style>
 {BASE_CSS}
-/* ── Weekly shared ── */
-.wk-page{{width:1280px;height:720px;background:#111;border:1px solid #1e1e1e;position:relative;display:flex;flex-direction:column;overflow:hidden}}
-.wk-inner{{flex:1;padding:18px 28px 14px;display:flex;flex-direction:column;overflow:hidden}}
-/* ── P1 ── */
-.w1-stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;margin-bottom:12px;flex-shrink:0}}
-.ws{{background:#0f0f0f;padding:7px 12px}}
-.ws-l{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#444;margin-bottom:2px}}
-.ws-v{{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#fff}}
-.w1-body{{flex:1;display:grid;grid-template-columns:1fr 1fr 160px;gap:16px;overflow:hidden;min-height:0}}
+.wpage{{width:1280px;height:720px;background:#111;border:1px solid #1e1e1e;display:flex;flex-direction:column;overflow:hidden}}
+.wpi{{flex:1;padding:18px 26px 13px;display:flex;flex-direction:column;overflow:hidden;gap:10px}}
+.wstats{{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;flex-shrink:0}}
+.ws{{background:#0f0f0f;padding:6px 10px}}
+.ws-l{{font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:#444;margin-bottom:2px}}
+.ws-v{{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;color:#fff}}
+.wbody{{flex:1;display:grid;grid-template-columns:220px 220px 140px 1fr;gap:12px;overflow:hidden;min-height:0}}
 /* hero cards */
-.wc{{background:#0f0f0f;border:1px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;gap:2px;overflow:hidden}}
-.wc-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:4px}}
-.wc-tk{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#888;margin-bottom:1px}}
-.wc-nm{{font-size:13px;font-weight:700;color:#ccc;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.wc-spark{{height:44px;flex-shrink:0;margin:4px 0}}
-.wc-chg{{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;margin-top:4px}}
-.wc-price{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;margin-top:1px}}
-.wc-empty{{background:#0f0f0f;border:1px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}}
-.wc-none{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}}
-/* exchange outperformer */
-.wex-winner{{background:#0f0f0f;border:1px solid #1a1a1a;padding:12px;margin-bottom:8px}}
-.wex-loser{{background:#0f0f0f;border:1px solid #1a1a1a;padding:10px}}
-.wex-label{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#333;margin-bottom:3px}}
-.wex-name{{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;margin-bottom:1px}}
-.wex-val{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600}}
-/* ── P2 performance table ── */
-.w2-body{{flex:1;overflow:hidden;display:flex;flex-direction:column}}
-.pr-hdr{{display:grid;grid-template-columns:28px 160px 180px 70px 70px 72px 60px 1fr;gap:0;border-bottom:1px solid #2a2a2a;padding-bottom:5px;flex-shrink:0}}
-.pr-hdr span{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#333;text-align:right}}
-.pr-hdr span:nth-child(-n+2){{text-align:left}}
-.pr{{display:grid;grid-template-columns:28px 160px 180px 70px 70px 72px 60px 1fr;gap:0;padding:5px 0;border-bottom:1px solid #161616;align-items:center}}
+.wc{{background:#0f0f0f;padding:11px 12px;display:flex;flex-direction:column;gap:1px;overflow:hidden;flex-shrink:0}}
+.wc-lbl{{font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:3px}}
+.wc-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#777}}
+.wc-nm{{font-size:11px;font-weight:700;color:#bbb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}}
+.wc-spark{{height:40px;flex-shrink:0;margin:3px 0}}
+.wc-chg{{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700}}
+.wc-close{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#333;margin-top:1px}}
+.wc-none{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;margin-top:8px}}
+/* exchange vs */
+.xvs{{background:#0f0f0f;padding:11px 12px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;overflow:hidden}}
+.xvs-ex{{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;text-align:center;letter-spacing:.04em}}
+.xvs-v{{font-size:11px;font-weight:600;margin-top:1px}}
+.xvs-sep{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a;letter-spacing:.2em}}
+/* performance table */
+.ptable{{display:flex;flex-direction:column;overflow:hidden}}
+.phdr{{display:grid;grid-template-columns:18px 44px 1fr 100px 48px 54px 62px 50px 1fr;gap:0;border-bottom:1px solid #222;padding-bottom:4px;flex-shrink:0}}
+.phdr span{{font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:#333;text-align:right}}
+.phdr span:nth-child(-n+3){{text-align:left}}
+.pr{{display:grid;grid-template-columns:18px 44px 1fr 100px 48px 54px 62px 50px 1fr;gap:0;padding:4px 0;border-bottom:1px solid #161616;align-items:center}}
 .pr:last-child{{border-bottom:none}}
-.pr-rank{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:#333}}
-.pr-id{{overflow:hidden;padding-right:8px}}
+.pr-rk{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700}}
 .pr-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#aaa;font-weight:600}}
-.pr-nm{{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.pr-spark{{height:22px}}
-.pr-open{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555;text-align:right;padding-right:8px}}
-.pr-close{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#fff;text-align:right;padding-right:8px}}
-.pr-chg{{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;text-align:right;padding-right:8px}}
-.pr-abs{{font-family:'IBM Plex Mono',monospace;font-size:9px;text-align:right;padding-right:8px}}
-.pr-meta{{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding-left:4px}}
-.pr-tag{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#444}}
-/* ── P3 narrative ── */
-.w3-body{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;overflow:hidden}}
-.w3-col{{display:flex;flex-direction:column;gap:10px;overflow:hidden}}
-.nc{{background:#0f0f0f;border:1px solid #1a1a1a;padding:12px}}
-.nc-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#444;margin-bottom:4px}}
-.nc-tk{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#aaa;margin-bottom:1px}}
-.nc-nm{{font-size:11px;font-weight:600;color:#777}}
-.rv{{padding:5px 0;border-bottom:1px solid #161616}}
-.rv:last-child{{border-bottom:none}}
-.rv-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#aaa;font-weight:600}}
-.rv-nm{{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}}
-.rv-desc{{font-family:'IBM Plex Mono',monospace;font-size:9px}}
-.gh{{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #141414}}
-.gh:last-child{{border-bottom:none}}
-.gh-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#666;flex-shrink:0;font-weight:600}}
-.gh-nm{{font-size:9px;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.gh-trades{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#2a2a2a;flex-shrink:0}}
-.vs-card{{background:#0f0f0f;border:1px solid #1a1a1a;padding:10px}}
-.vs-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#444;margin-bottom:3px}}
-.vs-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;font-weight:600}}
-.vs-nm{{font-size:10px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.vs-stat{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;margin-top:4px}}
+.pr-nm{{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:6px}}
+.pr-sp{{height:18px}}
+.pr-op{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;text-align:right;padding-right:6px}}
+.pr-cl{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:#ccc;text-align:right;padding-right:6px}}
+.pr-ch{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;text-align:right;padding-right:6px}}
+.pr-ab{{font-family:'IBM Plex Mono',monospace;font-size:9px;text-align:right;padding-right:6px;color:#555}}
+.pr-tg{{display:flex;gap:4px;align-items:center;padding-left:4px}}
+.ptag{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#444}}
+/* footer row */
+.wfoot{{display:flex;justify-content:space-between;align-items:center;padding-top:5px;border-top:1px solid #161616;flex-shrink:0;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#222}}
+.ghost-row{{display:flex;gap:5px;align-items:center;flex-wrap:wrap}}
 </style></head><body>
-{toolbar(f"WEEKLY WRAP · Bloomberg Labs · {T} pages")}
-<div class="pages">
-
-<!-- ═══ W1: Cover + Week Headlines ═══ -->
-<div class="wk-page"><div class="wk-inner">
+{toolbar("WEEKLY WRAP · Bloomberg Labs · 1 page")}
+<div style="display:flex;flex-direction:column;align-items:center;padding:12px 0 32px;margin-top:36px;background:#0a0a0a">
+<div class="wpage">
+<div class="wpi">
   {ph("Weekly Market Wrap · NER &amp; TSE", ds, ts)}
-  <div class="w1-stats">{stats_html}</div>
-  <div class="w1-body">
+  <div class="wstats">{stats_html}</div>
+  <div class="wbody">
     {winner_html}
     {loser_html}
-    <div style="display:flex;flex-direction:column;gap:8px;overflow:hidden">
+    <div style="display:flex;flex-direction:column;gap:6px">
       <div class="sh" style="margin-bottom:2px">// Exchange Battle</div>
-      {exch_html}
+      {exch_vs()}
+      <div class="sh" style="margin-bottom:4px;margin-top:4px;color:#d97706;border-color:#2a1800">// Ghost Securities</div>
+      <div class="ghost-row">{ghost_pills}</div>
+    </div>
+    <div class="ptable">
+      <div class="sh" style="margin-bottom:4px">// Weekly Performance Ranking</div>
+      <div class="phdr">
+        <span>#</span><span>Ticker</span><span>Name</span><span>Chart</span>
+        <span>Open</span><span>Close</span><span>Wk Δ%</span><span>Abs Δ</span><span>Signals</span>
+      </div>
+      {perf_html}
     </div>
   </div>
-  {pf(1,T)}
-</div><div class="pn">1/{T}</div></div>
-
-<!-- ═══ W2: Full Performance Table ═══ -->
-<div class="wk-page"><div class="wk-inner">
-  {ph("Weekly Performance · All Securities Ranked", ds, ts)}
-  <div class="w2-body">
-    <div class="pr-hdr">
-      <span>#</span><span>Security</span><span>7d Chart</span>
-      <span>Open</span><span>Close</span><span>Week Δ</span><span>Abs Δ</span><span>Activity</span>
-    </div>
-    {perf_rows}
+  <div class="wfoot">
+    <span>BLOOMBERG LABS · DEMOCRACYCRAFT · NER &amp; TSE · WEEKLY WRAP</span>
+    <span>{ds} · {ts} UTC · CONFIDENTIAL · NOT FOR DISTRIBUTION</span>
   </div>
-  {pf(2,T)}
-</div><div class="pn">2/{T}</div></div>
-
-<!-- ═══ W3: Market Narrative ═══ -->
-<div class="wk-page"><div class="wk-inner">
-  {ph("Weekly Narrative · Swings · Reversals · Ghost Securities", ds, ts)}
-  <div class="w3-body">
-    <div class="w3-col">
-      <div class="sh" style="margin-bottom:4px">// Biggest Intra-Week Move</div>
-      {swing_html or '<div style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#333">No data</div>'}
-      <div class="sh" style="margin-bottom:4px;margin-top:8px">// Volatility Extremes</div>
-      {vol_html}
-      {stb_html}
-    </div>
-    <div class="w3-col">
-      <div class="sh" style="margin-bottom:6px">// Reversals Detected</div>
-      {rev_html}
-    </div>
-    <div class="w3-col">
-      <div class="sh" style="color:#d97706;border-color:#2a1a00;margin-bottom:6px">// Ghost Securities</div>
-      <div style="font-family:IBM Plex Mono,monospace;font-size:8px;color:#444;margin-bottom:6px">Securities with ≤1 trade this week</div>
-      {ghost_list_html}
-    </div>
-  </div>
-  {pf(3,T)}
-</div><div class="pn">3/{T}</div></div>
-
+</div>
+</div>
 </div></body></html>"""
 
 @app.route("/debug")
