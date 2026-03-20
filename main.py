@@ -1084,8 +1084,7 @@ body{background:#0d0d0d;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif;min
 .cl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:#2a2a2a;margin-bottom:14px}
 .btns{display:flex;flex-direction:column;gap:8px}
 .btn{display:block;width:100%;padding:13px;border:none;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.05em;cursor:pointer;transition:all .15s;text-align:center}
-.btn.pub{background:#fff;color:#000}.btn.pub:hover{background:#ccc}
-.btn.prv{background:transparent;color:#fff;border:1px solid #2a2a2a}.btn.prv:hover{background:#1a1a1a}
+.btn.wkl{background:transparent;color:#d97706;border:1px solid #2a2a2a}.btn.wkl:hover{background:#1a1400;border-color:#d97706}
 .btn:disabled{background:#1a1a1a!important;color:#333!important;border-color:#1a1a1a!important;cursor:not-allowed}
 .badge{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:1px 5px;margin-left:6px;vertical-align:middle}
 .badge.pub{background:#fff;color:#000}.badge.prv{border:1px solid #2a2a2a;color:#555}
@@ -1106,6 +1105,7 @@ body{background:#0d0d0d;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif;min
     <div class="btns">
       <button class="btn pub" id="btnPub" onclick="go('public')">▶ PUBLIC REPORT <span class="badge pub">DC #NEWS</span></button>
       <button class="btn prv" id="btnPrv" onclick="go('private')">▶ FULL REPORT <span class="badge prv">BLOOMBERG DISCORD</span></button>
+      <button class="btn wkl" id="btnWkl" onclick="go('weekly')">▶ WEEKLY WRAP <span class="badge prv">BLOOMBERG DISCORD</span></button>
     </div>
     <div class="st" id="st">
       <div class="bar"><div class="barf" id="bf"></div></div>
@@ -1120,7 +1120,7 @@ setInterval(tick,1000);tick();
 function log(m,c=''){const d=document.createElement('div');d.className='lg';d.innerHTML=`<span class="ts">${new Date().toTimeString().slice(0,8)}</span><span class="${c}">${m}</span>`;document.getElementById('log').appendChild(d);}
 function bar(p){document.getElementById('bf').style.width=p+'%'}
 async function go(mode){
-  document.getElementById('btnPub').disabled=true;document.getElementById('btnPrv').disabled=true;
+  document.getElementById('btnPub').disabled=true;document.getElementById('btnPrv').disabled=true;document.getElementById('btnWkl').disabled=true;
   document.getElementById('st').classList.add('on');document.getElementById('log').innerHTML='';
   bar(5);log('Connecting to Atlas...','hi');
   try{
@@ -1130,7 +1130,7 @@ async function go(mode){
     const html=await r.text();bar(100);log('Report ready','ok');
     const w=window.open('','_blank');w.document.open();w.document.write(html);w.document.close();
   }catch(e){log('ERROR: '+e.message,'er');bar(0);}
-  finally{document.getElementById('btnPub').disabled=false;document.getElementById('btnPrv').disabled=false;}
+  finally{document.getElementById('btnPub').disabled=false;document.getElementById('btnPrv').disabled=false;document.getElementById('btnWkl').disabled=false;}
 }
 </script></body></html>"""
 
@@ -1220,8 +1220,380 @@ def api_report():
         ner_mcap_total=ner_mcap_total, tse_mcap_total=tse_mcap_total,
         combined_mcap=combined_mcap,
     )
-    html = build_public(ctx) if mode=="public" else build_private(ctx)
+    if mode=="public":    html = build_public(ctx)
+    elif mode=="weekly":  html = build_weekly(ctx)
+    else:                 html = build_private(ctx)
     return html, 200, {"Content-Type":"text/html"}
+
+def build_weekly(ctx):
+    d   = ctx
+    ds  = d["date_str"]; ts = d["time_str"]
+    T   = 3
+
+    all_secs = d["stocks"]+d["etfs"]+d["bonds"]+d["commodities"]
+
+    # ── Week story computations ───────────────────────────────────────────────
+    # For each security, prices_raw is oldest→newest. Use first and last for week change.
+    def week_chg(s):
+        p = s.get("prices", [])
+        if len(p) < 2: return None, None
+        start = p[0]; end = p[-1]
+        if start == 0: return None, None
+        chg = end - start
+        return round(chg, 4), round(chg/start*100, 2)
+
+    enriched = []
+    for s in all_secs:
+        wc, wc_pct = week_chg(s)
+        enriched.append({**s, "week_chg": wc, "week_chg_pct": wc_pct})
+
+    with_wchg   = [s for s in enriched if s["week_chg_pct"] is not None]
+    week_winner = max(with_wchg, key=lambda x: x["week_chg_pct"]) if with_wchg else None
+    week_loser  = min(with_wchg, key=lambda x: x["week_chg_pct"]) if with_wchg else None
+    week_volatile = max(enriched, key=lambda x: x["vol7"] if x["vol7"] else 0) if enriched else None
+    week_stable   = min([s for s in enriched if s["vol7"] is not None], key=lambda x: x["vol7"]) if enriched else None
+
+    # Ghost securities — zero or 1 trade in the week
+    ghosts = [s for s in enriched if s.get("trade_count",0) <= 1]
+
+    # Biggest single-day swing: find largest gap between consecutive prices in history
+    def max_daily_swing(s):
+        p = s.get("prices", [])
+        if len(p) < 2: return None, None
+        best = 0; best_i = 0
+        for i in range(1, len(p)):
+            if p[i-1] == 0: continue
+            swing = abs(p[i]-p[i-1])/p[i-1]*100
+            if swing > best: best = swing; best_i = i
+        return round(best, 2) if best > 0 else None, best_i
+
+    swing_data = []
+    for s in enriched:
+        sw, si = max_daily_swing(s)
+        if sw: swing_data.append({**s, "max_swing": sw, "swing_idx": si})
+    biggest_swing = max(swing_data, key=lambda x: x["max_swing"]) if swing_data else None
+
+    # Reversal detection: went one direction first half, opposite second half
+    def detect_reversal(s):
+        p = s.get("prices", [])
+        if len(p) < 4: return None
+        mid = len(p)//2
+        first_half_chg  = (p[mid-1] - p[0])   / p[0]   * 100 if p[0]   else 0
+        second_half_chg = (p[-1]    - p[mid])  / p[mid] * 100 if p[mid] else 0
+        if first_half_chg > 3 and second_half_chg < -3:
+            return ("pump→dump", round(first_half_chg,1), round(second_half_chg,1))
+        if first_half_chg < -3 and second_half_chg > 3:
+            return ("dump→pump", round(first_half_chg,1), round(second_half_chg,1))
+        return None
+    reversals = []
+    for s in enriched:
+        r = detect_reversal(s)
+        if r: reversals.append({**s, "reversal": r})
+
+    # NER vs TSE composite week performance
+    def exch_week_perf(lst):
+        chgs = [s["week_chg_pct"] for s in lst if s["week_chg_pct"] is not None]
+        return round(sum(chgs)/len(chgs), 2) if chgs else None
+    ner_secs = [s for s in enriched if s["exchange"]=="NER"]
+    tse_secs = [s for s in enriched if s["exchange"]=="TSE"]
+    ner_week_avg = exch_week_perf(ner_secs)
+    tse_week_avg = exch_week_perf(tse_secs)
+
+    # Market total volume
+    total_vol = sum(s.get("total_vol7") or 0 for s in enriched)
+    total_trades = sum(s.get("trade_count") or 0 for s in enriched)
+
+    # Avg liquidity
+    liqs = [s["liq"] for s in enriched if s["liq"] is not None]
+    avg_liq = round(sum(liqs)/len(liqs), 2) if liqs else None
+
+    # ── HTML helpers ─────────────────────────────────────────────────────────
+    def exch_winner_badge(ner_avg, tse_avg):
+        if ner_avg is None and tse_avg is None: return ""
+        if ner_avg is None: winner, loser, wv, lv = "TSE", "NER", tse_avg, "—"
+        elif tse_avg is None: winner, loser, wv, lv = "NER", "TSE", ner_avg, "—"
+        elif ner_avg >= tse_avg: winner, loser, wv, lv = "NER", "TSE", ner_avg, tse_avg
+        else: winner, loser, wv, lv = "TSE", "NER", tse_avg, ner_avg
+        wc = "#16a34a" if winner=="NER" else "#3b82f6"
+        lc = "#3b82f6" if loser=="TSE" else "#16a34a"
+        ws = "+" if wv and wv>0 else ""
+        ls = "+" if lv and isinstance(lv,float) and lv>0 else ""
+        lv_str = f'{ls}{lv}%' if isinstance(lv, float) else "—"
+        return (f'<div class="wex-winner" style="border-color:{wc}22">'
+                f'<div class="wex-label">Outperformer</div>'
+                f'<div class="wex-name" style="color:{wc}">{winner}</div>'
+                f'<div class="wex-val" style="color:{wc}">{ws}{wv}% avg</div>'
+                f'</div>'
+                f'<div class="wex-loser">'
+                f'<div class="wex-label">vs.</div>'
+                f'<div class="wex-name" style="color:{lc}">{loser}</div>'
+                f'<div class="wex-val" style="color:{lc}">{lv_str} avg</div>'
+                f'</div>')
+
+    def hero_card(s, label, color):
+        if not s: return f'<div class="wc wc-empty"><div class="wc-lbl">{label}</div><div class="wc-none">No data</div></div>'
+        wc  = s.get("week_chg_pct")
+        sign = "+" if wc and wc>0 else ""
+        arrow = "▲" if wc and wc>0 else ("▼" if wc and wc<0 else "—")
+        sp = make_spark(s.get("prices",[]), color, w=340, h=44)
+        return (f'<div class="wc" style="border-color:{color}22">'
+                f'<div class="wc-lbl">{label}</div>'
+                f'<div class="wc-tk">{s["display_ticker"]}{exb(s["exchange"])}</div>'
+                f'<div class="wc-nm">{s["name"]}</div>'
+                f'<div class="wc-spark">{sp}</div>'
+                f'<div class="wc-chg" style="color:{color}">{arrow} {sign}{wc}%</div>'
+                f'<div class="wc-price">Close {s["price_str"]}</div>'
+                f'</div>')
+
+    # ── P1: Cover + Week Story ────────────────────────────────────────────────
+    winner_html = hero_card(week_winner, "Week's Best Performer", "#16a34a")
+    loser_html  = hero_card(week_loser,  "Week's Worst Performer", "#dc2626")
+    exch_html   = exch_winner_badge(ner_week_avg, tse_week_avg)
+
+    # Stats strip
+    ner_sign = "+" if ner_week_avg and ner_week_avg>0 else ""
+    tse_sign = "+" if tse_week_avg and tse_week_avg>0 else ""
+    stat_items = [
+        ("NER Avg Δ",    f'{ner_sign}{ner_week_avg}%' if ner_week_avg is not None else "—", "color:#16a34a" if ner_week_avg and ner_week_avg>0 else "color:#dc2626"),
+        ("TSE Avg Δ",    f'{tse_sign}{tse_week_avg}%' if tse_week_avg is not None else "—", "color:#3b82f6"),
+        ("Total Trades", str(total_trades),  ""),
+        ("Total Volume", fmtbig(total_vol),  ""),
+        ("Avg Liquidity",str(avg_liq) if avg_liq else "—", ""),
+        ("Ghost Secs",   str(len(ghosts)),   "color:#d97706" if ghosts else "color:#16a34a"),
+    ]
+    stats_html = "".join(
+        f'<div class="ws"><div class="ws-l">{l}</div><div class="ws-v" style="{c}">{v}</div></div>'
+        for l,v,c in stat_items
+    )
+
+    # ── P2: Security Performance Table ────────────────────────────────────────
+    sorted_by_perf = sorted(with_wchg, key=lambda x: x["week_chg_pct"], reverse=True)
+
+    def perf_row(s, rank):
+        wc  = s["week_chg_pct"]; wca = s["week_chg"]
+        sign = "+" if wc>0 else ""
+        col  = "#16a34a" if wc>0 else "#dc2626"
+        sp   = make_spark(s.get("prices",[]), col, w=180, h=22)
+        sw, _ = max_daily_swing(s)
+        rev   = detect_reversal(s)
+        rev_html = f'<span class="pr-tag" style="color:#d97706">↩ {rev[0]}</span>' if rev else ""
+        ghost_html = '<span class="pr-tag" style="color:#555">GHOST</span>' if s.get("trade_count",0)<=1 else ""
+        swing_tag = f'<span class="pr-tag">Swing {sw}%</span>' if sw else ""
+        return (f'<div class="pr">'
+                f'<div class="pr-rank">{rank}</div>'
+                f'<div class="pr-id">'
+                f'  <div class="pr-tk">{s["display_ticker"]}{exb(s["exchange"])}</div>'
+                f'  <div class="pr-nm">{s["name"]}</div>'
+                f'</div>'
+                f'<div class="pr-spark">{sp}</div>'
+                f'<div class="pr-open">{fmts(s["prices"][0]) if s.get("prices") else "—"}</div>'
+                f'<div class="pr-close">{s["price_str"]}</div>'
+                f'<div class="pr-chg" style="color:{col}">{sign}{wc}%</div>'
+                f'<div class="pr-abs" style="color:{col}">{sign}{wca}</div>'
+                f'<div class="pr-meta">'
+                f'  <span class="pr-tag">Trades {s.get("trade_count",0)}</span>'
+                f'  <span class="pr-tag">Vol {fmtbig(s.get("total_vol7"))}</span>'
+                f'  {swing_tag}'
+                f'  {rev_html}{ghost_html}'
+                f'</div>'
+                f'</div>')
+
+    perf_rows = "".join(perf_row(s, i+1) for i,s in enumerate(sorted_by_perf))
+    if not perf_rows: perf_rows = '<div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#333;padding:12px 0">No performance data available</div>'
+
+    # ── P3: Market Narrative ─────────────────────────────────────────────────
+    # Biggest swing card
+    swing_html = ""
+    if biggest_swing:
+        bs = biggest_swing
+        sp = make_spark(bs.get("prices",[]), "#d97706", w=280, h=36)
+        swing_html = (f'<div class="nc">'
+                      f'<div class="nc-lbl">Biggest Intra-Week Swing</div>'
+                      f'<div class="nc-tk">{bs["display_ticker"]}{exb(bs["exchange"])} '
+                      f'<span style="font-family:IBM Plex Mono,monospace;font-size:11px;color:#d97706">{bs["max_swing"]}% single move</span></div>'
+                      f'<div class="nc-nm">{bs["name"]}</div>'
+                      f'<div style="height:36px;margin-top:6px">{sp}</div>'
+                      f'</div>')
+
+    # Reversals
+    rev_html = ""
+    if reversals:
+        for r in reversals[:3]:
+            rv = r["reversal"]
+            first_col = "#16a34a" if rv[1]>0 else "#dc2626"
+            sec_col   = "#16a34a" if rv[2]>0 else "#dc2626"
+            sign1 = "+" if rv[1]>0 else ""; sign2 = "+" if rv[2]>0 else ""
+            rev_html += (f'<div class="rv">'
+                         f'<div class="rv-tk">{r["display_ticker"]}{exb(r["exchange"])}</div>'
+                         f'<div class="rv-nm">{r["name"]}</div>'
+                         f'<div class="rv-desc">'
+                         f'<span style="color:{first_col}">{sign1}{rv[1]}% first half</span>'
+                         f' → <span style="color:{sec_col}">{sign2}{rv[2]}% second half</span>'
+                         f'</div></div>')
+    else:
+        rev_html = '<div style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#333;padding:6px 0">No significant reversals detected</div>'
+
+    # Ghosts
+    ghost_list_html = ""
+    if ghosts:
+        ghost_list_html = "".join(
+            f'<div class="gh"><span class="gh-tk">{s["display_ticker"]}{exb(s["exchange"])}</span>'
+            f'<span class="gh-nm">{s["name"]}</span>'
+            f'<span class="gh-trades">{s.get("trade_count",0)} trade{"s" if s.get("trade_count",0)!=1 else ""}</span></div>'
+            for s in ghosts
+        )
+    else:
+        ghost_list_html = '<div style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#16a34a;padding:6px 0">All securities active this week</div>'
+
+    # Volatile vs stable
+    vol_html = ""
+    if week_volatile:
+        sp = make_spark(week_volatile.get("prices",[]), "#dc2626", w=140, h=24)
+        vol_html = (f'<div class="vs-card">'
+                    f'<div class="vs-lbl">Most Volatile</div>'
+                    f'<div class="vs-tk">{week_volatile["display_ticker"]}{exb(week_volatile["exchange"])}</div>'
+                    f'<div class="vs-nm">{week_volatile["name"]}</div>'
+                    f'<div style="height:24px;margin-top:4px">{sp}</div>'
+                    f'<div class="vs-stat" style="color:#dc2626">σ = {fmts(week_volatile["vol7"])}</div>'
+                    f'</div>')
+    stb_html = ""
+    if week_stable:
+        sp = make_spark(week_stable.get("prices",[]), "#16a34a", w=140, h=24)
+        stb_html = (f'<div class="vs-card">'
+                    f'<div class="vs-lbl">Most Stable</div>'
+                    f'<div class="vs-tk">{week_stable["display_ticker"]}{exb(week_stable["exchange"])}</div>'
+                    f'<div class="vs-nm">{week_stable["name"]}</div>'
+                    f'<div style="height:24px;margin-top:4px">{sp}</div>'
+                    f'<div class="vs-stat" style="color:#16a34a">σ = {fmts(week_stable["vol7"])}</div>'
+                    f'</div>')
+
+    # ── RENDER ────────────────────────────────────────────────────────────────
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Bloomberg Labs — Weekly Wrap — {ds}</title>{FONTS}
+<style>
+{BASE_CSS}
+/* ── Weekly shared ── */
+.wk-page{{width:1280px;height:720px;background:#111;border:1px solid #1e1e1e;position:relative;display:flex;flex-direction:column;overflow:hidden}}
+.wk-inner{{flex:1;padding:18px 28px 14px;display:flex;flex-direction:column;overflow:hidden}}
+/* ── P1 ── */
+.w1-stats{{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:#1a1a1a;border:1px solid #1a1a1a;margin-bottom:12px;flex-shrink:0}}
+.ws{{background:#0f0f0f;padding:7px 12px}}
+.ws-l{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#444;margin-bottom:2px}}
+.ws-v{{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:#fff}}
+.w1-body{{flex:1;display:grid;grid-template-columns:1fr 1fr 160px;gap:16px;overflow:hidden;min-height:0}}
+/* hero cards */
+.wc{{background:#0f0f0f;border:1px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;gap:2px;overflow:hidden}}
+.wc-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:4px}}
+.wc-tk{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#888;margin-bottom:1px}}
+.wc-nm{{font-size:13px;font-weight:700;color:#ccc;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.wc-spark{{height:44px;flex-shrink:0;margin:4px 0}}
+.wc-chg{{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;margin-top:4px}}
+.wc-price{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#444;margin-top:1px}}
+.wc-empty{{background:#0f0f0f;border:1px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}}
+.wc-none{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#2a2a2a}}
+/* exchange outperformer */
+.wex-winner{{background:#0f0f0f;border:1px solid #1a1a1a;padding:12px;margin-bottom:8px}}
+.wex-loser{{background:#0f0f0f;border:1px solid #1a1a1a;padding:10px}}
+.wex-label{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#333;margin-bottom:3px}}
+.wex-name{{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;margin-bottom:1px}}
+.wex-val{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600}}
+/* ── P2 performance table ── */
+.w2-body{{flex:1;overflow:hidden;display:flex;flex-direction:column}}
+.pr-hdr{{display:grid;grid-template-columns:28px 160px 180px 70px 70px 72px 60px 1fr;gap:0;border-bottom:1px solid #2a2a2a;padding-bottom:5px;flex-shrink:0}}
+.pr-hdr span{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:#333;text-align:right}}
+.pr-hdr span:nth-child(-n+2){{text-align:left}}
+.pr{{display:grid;grid-template-columns:28px 160px 180px 70px 70px 72px 60px 1fr;gap:0;padding:5px 0;border-bottom:1px solid #161616;align-items:center}}
+.pr:last-child{{border-bottom:none}}
+.pr-rank{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:#333}}
+.pr-id{{overflow:hidden;padding-right:8px}}
+.pr-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#aaa;font-weight:600}}
+.pr-nm{{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.pr-spark{{height:22px}}
+.pr-open{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555;text-align:right;padding-right:8px}}
+.pr-close{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#fff;text-align:right;padding-right:8px}}
+.pr-chg{{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;text-align:right;padding-right:8px}}
+.pr-abs{{font-family:'IBM Plex Mono',monospace;font-size:9px;text-align:right;padding-right:8px}}
+.pr-meta{{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding-left:4px}}
+.pr-tag{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#444}}
+/* ── P3 narrative ── */
+.w3-body{{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;overflow:hidden}}
+.w3-col{{display:flex;flex-direction:column;gap:10px;overflow:hidden}}
+.nc{{background:#0f0f0f;border:1px solid #1a1a1a;padding:12px}}
+.nc-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#444;margin-bottom:4px}}
+.nc-tk{{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#aaa;margin-bottom:1px}}
+.nc-nm{{font-size:11px;font-weight:600;color:#777}}
+.rv{{padding:5px 0;border-bottom:1px solid #161616}}
+.rv:last-child{{border-bottom:none}}
+.rv-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#aaa;font-weight:600}}
+.rv-nm{{font-size:9px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}}
+.rv-desc{{font-family:'IBM Plex Mono',monospace;font-size:9px}}
+.gh{{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #141414}}
+.gh:last-child{{border-bottom:none}}
+.gh-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#666;flex-shrink:0;font-weight:600}}
+.gh-nm{{font-size:9px;color:#333;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.gh-trades{{font-family:'IBM Plex Mono',monospace;font-size:8px;color:#2a2a2a;flex-shrink:0}}
+.vs-card{{background:#0f0f0f;border:1px solid #1a1a1a;padding:10px}}
+.vs-lbl{{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#444;margin-bottom:3px}}
+.vs-tk{{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#888;font-weight:600}}
+.vs-nm{{font-size:10px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.vs-stat{{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;margin-top:4px}}
+</style></head><body>
+{toolbar(f"WEEKLY WRAP · Bloomberg Labs · {T} pages")}
+<div class="pages">
+
+<!-- ═══ W1: Cover + Week Headlines ═══ -->
+<div class="wk-page"><div class="wk-inner">
+  {ph("Weekly Market Wrap · NER &amp; TSE", ds, ts)}
+  <div class="w1-stats">{stats_html}</div>
+  <div class="w1-body">
+    {winner_html}
+    {loser_html}
+    <div style="display:flex;flex-direction:column;gap:8px;overflow:hidden">
+      <div class="sh" style="margin-bottom:2px">// Exchange Battle</div>
+      {exch_html}
+    </div>
+  </div>
+  {pf(1,T)}
+</div><div class="pn">1/{T}</div></div>
+
+<!-- ═══ W2: Full Performance Table ═══ -->
+<div class="wk-page"><div class="wk-inner">
+  {ph("Weekly Performance · All Securities Ranked", ds, ts)}
+  <div class="w2-body">
+    <div class="pr-hdr">
+      <span>#</span><span>Security</span><span>7d Chart</span>
+      <span>Open</span><span>Close</span><span>Week Δ</span><span>Abs Δ</span><span>Activity</span>
+    </div>
+    {perf_rows}
+  </div>
+  {pf(2,T)}
+</div><div class="pn">2/{T}</div></div>
+
+<!-- ═══ W3: Market Narrative ═══ -->
+<div class="wk-page"><div class="wk-inner">
+  {ph("Weekly Narrative · Swings · Reversals · Ghost Securities", ds, ts)}
+  <div class="w3-body">
+    <div class="w3-col">
+      <div class="sh" style="margin-bottom:4px">// Biggest Intra-Week Move</div>
+      {swing_html or '<div style="font-family:IBM Plex Mono,monospace;font-size:9px;color:#333">No data</div>'}
+      <div class="sh" style="margin-bottom:4px;margin-top:8px">// Volatility Extremes</div>
+      {vol_html}
+      {stb_html}
+    </div>
+    <div class="w3-col">
+      <div class="sh" style="margin-bottom:6px">// Reversals Detected</div>
+      {rev_html}
+    </div>
+    <div class="w3-col">
+      <div class="sh" style="color:#d97706;border-color:#2a1a00;margin-bottom:6px">// Ghost Securities</div>
+      <div style="font-family:IBM Plex Mono,monospace;font-size:8px;color:#444;margin-bottom:6px">Securities with ≤1 trade this week</div>
+      {ghost_list_html}
+    </div>
+  </div>
+  {pf(3,T)}
+</div><div class="pn">3/{T}</div></div>
+
+</div></body></html>"""
 
 @app.route("/debug")
 def debug():
