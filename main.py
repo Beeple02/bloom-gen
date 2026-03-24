@@ -1,12 +1,64 @@
-import os
+import os, bcrypt
 from datetime import datetime, timezone
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, redirect, url_for, flash, session
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import httpx
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "bloomberg-labs-dev-secret-change-me")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///bloomberg.db")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-ATLAS_URL = os.environ.get("ATLAS_URL", "").rstrip("/")
-ATLAS_KEY = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = "login_page"
+login_manager.login_message = ""
+
+ATLAS_URL  = os.environ.get("ATLAS_URL", "").rstrip("/")
+ATLAS_KEY  = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
+ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "changeme")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODELS
+# ─────────────────────────────────────────────────────────────────────────────
+
+class User(UserMixin, db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    username   = db.Column(db.String(80), unique=True, nullable=False)
+    password_h = db.Column(db.String(200), nullable=False)
+    is_admin   = db.Column(db.Boolean, default=False)
+    approved   = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+class SubscriptionRequest(db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    name       = db.Column(db.String(120), nullable=False)
+    discord    = db.Column(db.String(120), nullable=False)
+    reason     = db.Column(db.Text, nullable=False)
+    status     = db.Column(db.String(20), default="pending")  # pending/approved/denied
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+@login_manager.user_loader
+def load_user(uid):
+    return db.session.get(User, int(uid))
+
+def init_db():
+    with app.app_context():
+        db.create_all()
+        # Ensure admin account exists / stays in sync with env vars
+        admin = User.query.filter_by(is_admin=True).first()
+        pw_hash = bcrypt.hashpw(ADMIN_PASS.encode(), bcrypt.gensalt()).decode()
+        if not admin:
+            db.session.add(User(username=ADMIN_USER, password_h=pw_hash,
+                                is_admin=True, approved=True))
+            db.session.commit()
+        else:
+            # Update credentials if env vars changed
+            admin.username   = ADMIN_USER
+            admin.password_h = pw_hash
+            db.session.commit()
 
 NER_BONDS       = {"RNC-B", "VSP3"}
 NER_ETFS        = {"CGF", "RNHC", "SRI"}
@@ -1636,6 +1688,7 @@ def build_weekly(ctx):
 </div>
 </div></body></html>"""
 
+
 @app.route("/debug")
 def debug():
     try:
@@ -1660,6 +1713,548 @@ def debug():
 def health():
     return {"status":"ok"}
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SHARED PAGE SHELL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def page_shell(title, body, active=""):
+    nav_items = [
+        ("Home",      "/",          "home"),
+        ("Demo",      "/demo",      "demo"),
+        ("Subscribe", "/request",   "request"),
+        ("Login",     "/login",     "login"),
+    ]
+    if current_user.is_authenticated:
+        nav_items = [
+            ("Home",       "/",           "home"),
+            ("Dashboard",  "/dashboard",  "dashboard"),
+            ("Demo",       "/demo",       "demo"),
+        ]
+        if current_user.is_admin:
+            nav_items.append(("Admin", "/admin", "admin"))
+        nav_items.append(("Logout", "/logout", "logout"))
+
+    nav_html = "".join(
+        f'<a href="{href}" class="nav-a{"  nav-active" if active==k else ""}">{label}</a>'
+        for label, href, k in nav_items
+    )
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>{title} · Bloomberg Labs</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+html,body{{background:#0d0d0d;color:#e5e5e5;font-family:'IBM Plex Sans',sans-serif;min-height:100vh}}
+nav{{background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:0 40px;display:flex;align-items:center;height:48px;gap:0;position:sticky;top:0;z-index:100}}
+.nav-logo{{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:#fff;letter-spacing:.02em;margin-right:32px;text-decoration:none}}
+.nav-logo span{{color:#555;font-weight:400}}
+.nav-a{{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#444;text-decoration:none;padding:0 16px;height:48px;display:flex;align-items:center;border-bottom:2px solid transparent;transition:all .15s}}
+.nav-a:hover{{color:#aaa}}
+.nav-active{{color:#fff;border-bottom-color:#fff}}
+.main{{max-width:1100px;margin:0 auto;padding:56px 32px}}
+/* forms */
+.card{{background:#111;border:1px solid #1e1e1e;padding:36px;max-width:480px}}
+.card-wide{{background:#111;border:1px solid #1e1e1e;padding:36px}}
+.card-title{{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#444;margin-bottom:6px}}
+.card-h{{font-size:28px;font-weight:700;color:#fff;letter-spacing:-.02em;margin-bottom:24px}}
+label{{display:block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#555;margin-bottom:5px;margin-top:16px}}
+label:first-of-type{{margin-top:0}}
+input,textarea{{display:block;width:100%;background:#0d0d0d;border:1px solid #222;color:#e5e5e5;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px 12px;outline:none;transition:border .15s}}
+input:focus,textarea:focus{{border-color:#555}}
+textarea{{resize:vertical;min-height:80px}}
+.btn-p{{display:inline-block;padding:11px 24px;background:#fff;color:#000;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:none;cursor:pointer;text-decoration:none;transition:background .15s;margin-top:20px}}
+.btn-p:hover{{background:#ccc}}
+.btn-s{{display:inline-block;padding:11px 24px;background:transparent;color:#fff;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border:1px solid #2a2a2a;cursor:pointer;text-decoration:none;transition:all .15s;margin-top:20px;margin-left:10px}}
+.btn-s:hover{{background:#1a1a1a;border-color:#555}}
+.btn-danger{{background:#dc2626;color:#fff}}.btn-danger:hover{{background:#b91c1c}}
+.btn-green{{background:#16a34a;color:#fff}}.btn-green:hover{{background:#15803d}}
+.flash{{padding:10px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;margin-bottom:20px;border-left:2px solid}}
+.flash.error{{background:#1a0000;color:#dc2626;border-color:#dc2626}}
+.flash.success{{background:#001a0a;color:#16a34a;border-color:#16a34a}}
+.flash.info{{background:#0d1525;color:#3b82f6;border-color:#3b82f6}}
+/* table */
+table{{width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:11px}}
+th{{text-align:left;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#444;padding:0 12px 10px 0;border-bottom:1px solid #222}}
+td{{padding:10px 12px 10px 0;border-bottom:1px solid #161616;color:#aaa;vertical-align:middle}}
+td:first-child{{color:#e5e5e5}}
+.badge{{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.06em;padding:2px 7px;text-transform:uppercase}}
+.badge-pending{{background:#1a1400;color:#d97706;border:1px solid #d9770644}}
+.badge-approved{{background:#001a0a;color:#16a34a;border:1px solid #16a34a44}}
+.badge-denied{{background:#1a0000;color:#dc2626;border:1px solid #dc262644}}
+</style></head><body>
+<nav>
+  <a class="nav-logo" href="/">BLOOMBERG<span> LABS</span></a>
+  {nav_html}
+</nav>
+<div class="main">{body}</div>
+</body></html>"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LANDING PAGE
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/")
+def landing():
+    body = """
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;min-height:60vh">
+  <div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#333;margin-bottom:14px">DemocracyCraft · NER &amp; TSE Exchange</div>
+    <h1 style="font-size:56px;font-weight:700;letter-spacing:-.03em;line-height:.92;color:#fff;margin-bottom:20px">Market<br>Intelligence<br><span style="color:#333">Delivered.</span></h1>
+    <p style="font-size:15px;color:#666;line-height:1.7;max-width:420px;margin-bottom:32px">Daily and weekly market reports covering the NER and TSE exchanges. Price movements, indices, orderbook snapshots, top movers — built on live Atlas data.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <a href="/demo" class="btn-p" style="margin-top:0">View Demo</a>
+      <a href="/request" class="btn-s" style="margin-top:0">Subscribe — 500₽/mo</a>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:1px">
+    <div style="background:#111;border:1px solid #1e1e1e;padding:20px 24px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#333;margin-bottom:8px">Daily Report</div>
+      <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">Public + Full Private</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555">9-page deep dive — securities, movers, orderbook, microstructure, cross-exchange analytics</div>
+    </div>
+    <div style="background:#111;border:1px solid #1e1e1e;padding:20px 24px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#333;margin-bottom:8px">Weekly Wrap</div>
+      <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">Week in Review</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555">Winners, losers, reversals, ghost securities, exchange battle — all in one page</div>
+    </div>
+    <div style="background:#111;border:1px solid #1e1e1e;padding:20px 24px">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#333;margin-bottom:8px">Powered by</div>
+      <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">Atlas Market API</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555">Live data — prices, orderbooks, derived metrics, full 7-day trade history</div>
+    </div>
+  </div>
+</div>
+<div style="margin-top:80px;padding-top:32px;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#2a2a2a">
+  <span>BLOOMBERG LABS · DEMOCRACYCRAFT</span>
+  <span>NER EXCHANGE · THE STOCK EXCHANGE · ATLAS INFRASTRUCTURE</span>
+</div>"""
+    return render_template_string(page_shell("Home", body, "home"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTH ROUTES
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/login", methods=["GET","POST"])
+def login_page():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+    error = ""
+    if request.method == "POST":
+        username = request.form.get("username","").strip()
+        password = request.form.get("password","").encode()
+        user = User.query.filter_by(username=username).first()
+        if user and bcrypt.checkpw(password, user.password_h.encode()):
+            if not user.approved:
+                error = "Your account is pending approval."
+            else:
+                login_user(user)
+                return redirect(url_for("dashboard"))
+        else:
+            error = "Invalid username or password."
+    flash_html = f'<div class="flash error">{error}</div>' if error else ""
+    body = f"""
+<div class="card">
+  <div class="card-title">Bloomberg Labs</div>
+  <div class="card-h">Sign In</div>
+  {flash_html}
+  <form method="POST">
+    <label>Username</label>
+    <input name="username" type="text" autocomplete="username" required>
+    <label>Password</label>
+    <input name="password" type="password" autocomplete="current-password" required>
+    <button class="btn-p" type="submit">Login</button>
+    <a href="/request" class="btn-s">Request Access</a>
+  </form>
+</div>"""
+    return render_template_string(page_shell("Login", body, "login"))
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("landing"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUBSCRIPTION REQUEST
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/request", methods=["GET","POST"])
+def request_page():
+    msg = ""
+    msg_type = ""
+    if request.method == "POST":
+        name    = request.form.get("name","").strip()
+        discord = request.form.get("discord","").strip()
+        reason  = request.form.get("reason","").strip()
+        if not name or not discord or not reason:
+            msg = "All fields are required."; msg_type = "error"
+        else:
+            db.session.add(SubscriptionRequest(name=name, discord=discord, reason=reason))
+            db.session.commit()
+            msg = "Request submitted. We'll reach out on Discord."; msg_type = "success"
+    flash_html = f'<div class="flash {msg_type}">{msg}</div>' if msg else ""
+    body = f"""
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start">
+  <div class="card">
+    <div class="card-title">Bloomberg Labs</div>
+    <div class="card-h">Request Access</div>
+    <p style="font-size:13px;color:#555;margin-bottom:24px;line-height:1.6">Subscriptions are 500₽/month. Fill in the form and we'll contact you on Discord to set up your account.</p>
+    {flash_html}
+    <form method="POST">
+      <label>Full Name / IGN</label>
+      <input name="name" type="text" required>
+      <label>Discord Username</label>
+      <input name="discord" type="text" placeholder="username#0000 or @username" required>
+      <label>Why do you want access?</label>
+      <textarea name="reason" placeholder="Brief description of your use case..." required></textarea>
+      <button class="btn-p" type="submit">Submit Request</button>
+    </form>
+  </div>
+  <div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#333;margin-bottom:20px">What's included</div>
+    {"".join(f'<div style="padding:14px 0;border-bottom:1px solid #1a1a1a"><div style="font-size:14px;font-weight:600;color:#ccc;margin-bottom:3px">{t}</div><div style="font-family:IBM Plex Mono,monospace;font-size:10px;color:#444">{d}</div></div>' for t,d in [
+      ("Daily Public Report",   "1-page landscape · top movers + indices · post to #news"),
+      ("Daily Full Report",     "9-page deep dive · securities, OB, microstructure, cross-exchange"),
+      ("Weekly Wrap",           "Week in review · winners, losers, reversals, ghost securities"),
+      ("Live Atlas Data",       "All reports generated on-demand from live market data"),
+      ("Report Generator",      "Access to the web dashboard to generate reports anytime"),
+    ])}
+  </div>
+</div>"""
+    return render_template_string(page_shell("Request Access", body, "request"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DEMO
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/demo")
+def demo():
+    try:
+        raw = fetch_all()
+    except Exception as e:
+        body = f'<div class="flash error">Atlas connection error: {e}</div>'
+        return render_template_string(page_shell("Demo", body, "demo"))
+
+    securities = raw.get("securities",[])
+    if not isinstance(securities,list): securities=[]
+    history = raw.get("history",{})
+
+    def sum_mcap(exch):
+        total = 0
+        for s in securities:
+            if s.get("hidden") or s["ticker"] in HIDDEN_TICKERS: continue
+            if (is_tse(s["ticker"]) and exch=="TSE") or (not is_tse(s["ticker"]) and exch=="NER"):
+                mc=s.get("market_cap"); p=s.get("market_price"); sh=s.get("total_shares")
+                if mc: total+=float(mc)
+                elif p and sh: total+=float(p)*float(sh)
+        return total if total>0 else None
+
+    ner_mcap_total = sum_mcap("NER"); tse_mcap_total = sum_mcap("TSE")
+    combined_mcap  = (ner_mcap_total+tse_mcap_total) if (ner_mcap_total and tse_mcap_total) else None
+    processed  = [process_sec(s, history, ner_mcap_total, tse_mcap_total) for s in securities]
+    ner_indices, tse_indices = compute_indices(securities)
+    visible = [s for s in securities if not s.get("hidden") and s["ticker"] not in HIDDEN_TICKERS]
+    total   = len(visible); frozen = len([s for s in visible if s.get("frozen")])
+    liqs = [p["liq"] for p in processed if p["liq"] is not None]
+    vols = [p["vol7"] for p in processed if p["vol7"] is not None]
+    def by_cat(cat):
+        return [p for s,p in zip(securities,processed)
+                if classify(s)==cat and s["ticker"] not in HIDDEN_TICKERS and not s.get("hidden")]
+    def idx_val(indices, ticker):
+        i = next((x for x in indices if x["ticker"]==ticker),None)
+        return i["value"] if i and i["value"] is not None else "—"
+    now = datetime.now(timezone.utc)
+    ctx = dict(
+        date_str=now.strftime("%b. %d, %Y"), time_str=now.strftime("%H:%M:%S"),
+        stocks=by_cat("Stock"), etfs=by_cat("ETF"), bonds=by_cat("Bond"), commodities=by_cat("Commodity"),
+        ner_indices=ner_indices, tse_indices=tse_indices, orderbooks=[],
+        total_count=total, frozen_count=frozen, active_count=total-frozen,
+        avg_liq=fmts(sum(liqs)/len(liqs)) if liqs else "—",
+        avg_vol=fmts(sum(vols)/len(vols)) if vols else "—",
+        ner_comp=idx_val(ner_indices,"B:COMP"), ner_stk=idx_val(ner_indices,"B:STK"),
+        tse_comp=idx_val(tse_indices,"T:COMP"), tse_stk=idx_val(tse_indices,"T:STK"),
+        ner_mcap_total=ner_mcap_total, tse_mcap_total=tse_mcap_total, combined_mcap=combined_mcap,
+    )
+    report_html = build_public(ctx)
+
+    # Inject watermark + lock overlay into the report HTML before </body>
+    watermark = """
+<style>
+.demo-wm{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);
+font-family:'IBM Plex Mono',monospace;font-size:72px;font-weight:700;color:#fff;
+opacity:.04;pointer-events:none;white-space:nowrap;z-index:9999;letter-spacing:.1em}
+.demo-lock{position:fixed;bottom:0;left:0;right:0;background:linear-gradient(transparent,#0d0d0d 60%);
+height:220px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
+padding-bottom:32px;z-index:1000}
+.demo-lock-box{background:#111;border:1px solid #2a2a2a;padding:20px 36px;text-align:center}
+.demo-lock-t{font-size:18px;font-weight:700;color:#fff;margin-bottom:6px}
+.demo-lock-s{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#555;margin-bottom:16px}
+.demo-lock-btn{display:inline-block;padding:10px 24px;background:#fff;color:#000;
+font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;
+letter-spacing:.06em;text-transform:uppercase;text-decoration:none}
+.demo-lock-btn:hover{background:#ccc}
+.demo-lock-ln{display:inline-block;padding:10px 24px;color:#555;
+font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.06em;
+text-transform:uppercase;text-decoration:none;margin-left:10px}
+.demo-lock-ln:hover{color:#aaa}
+</style>
+<div class="demo-wm">DEMO</div>
+<div class="demo-lock">
+  <div class="demo-lock-box">
+    <div class="demo-lock-t">Full Report Locked</div>
+    <div class="demo-lock-s">Subscribe to access the 9-page full report, weekly wrap, and report generator</div>
+    <a href="/request" class="demo-lock-btn">Subscribe — 500₽/mo</a>
+    <a href="/login" class="demo-lock-ln">Login</a>
+  </div>
+</div>"""
+    report_html = report_html.replace("</body>", watermark + "</body>")
+
+    body = f"""
+<div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+  <div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:4px">Live Demo</div>
+    <h1 style="font-size:24px;font-weight:700;color:#fff">Public Report Preview</h1>
+  </div>
+  <a href="/request" class="btn-p" style="margin-top:0">Subscribe for Full Access</a>
+</div>
+<div style="background:#0a0a0a;border:1px solid #1a1a1a;padding:0;overflow:hidden;position:relative">
+  <iframe srcdoc="{report_html.replace(chr(34), '&quot;').replace(chr(39),'&#39;')}"
+    style="width:1280px;height:720px;border:none;display:block;transform-origin:top left;
+    transform:scale(0.82);margin-bottom:-130px"
+    scrolling="no"></iframe>
+</div>
+<div style="margin-top:16px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#333;text-align:center">
+  LIVE DATA · BLOOMBERG LABS · DEMOCRACYCRAFT · SUBSCRIBE TO UNLOCK FULL REPORT + WEEKLY WRAP
+</div>"""
+    return render_template_string(page_shell("Demo", body, "demo"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DASHBOARD (gated)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    body = """
+<div style="margin-bottom:32px">
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:6px">Bloomberg Labs · Report Generator</div>
+  <h1 style="font-size:32px;font-weight:700;color:#fff">Dashboard</h1>
+</div>
+<div class="card-wide">
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#333;margin-bottom:16px">// Generate Report</div>
+  <div style="display:flex;flex-direction:column;gap:8px;max-width:480px">
+    <button class="btn-p" style="margin-top:0;text-align:center" onclick="go('public')">▶ PUBLIC REPORT <span style="font-size:9px;opacity:.6">DC #NEWS</span></button>
+    <button onclick="go('private')" style="display:block;width:100%;padding:11px;background:transparent;color:#fff;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.06em;cursor:pointer;text-transform:uppercase;border:1px solid #2a2a2a;text-align:center;transition:all .15s" onmouseover="this.style.background='#1a1a1a'" onmouseout="this.style.background='transparent'">▶ FULL REPORT <span style="font-size:9px;opacity:.6">BLOOMBERG DISCORD</span></button>
+    <button onclick="go('weekly')" style="display:block;width:100%;padding:11px;background:transparent;color:#d97706;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.06em;cursor:pointer;text-transform:uppercase;border:1px solid #2a2a2a;text-align:center;transition:all .15s" onmouseover="this.style.background='#1a1400'" onmouseout="this.style.background='transparent'">▶ WEEKLY WRAP <span style="font-size:9px;opacity:.6">BLOOMBERG DISCORD</span></button>
+  </div>
+  <div id="st" style="display:none;margin-top:20px">
+    <div style="height:1px;background:#1a1a1a;margin-bottom:10px;overflow:hidden">
+      <div id="bf" style="height:100%;background:#16a34a;width:0;transition:width .3s;box-shadow:0 0 5px #16a34a"></div>
+    </div>
+    <div id="log" style="font-family:'IBM Plex Mono',monospace;font-size:10px"></div>
+  </div>
+</div>
+<script>
+function log(m,c){const d=document.createElement('div');d.style.cssText='display:flex;gap:8px;padding:2px 0';d.innerHTML=`<span style="color:#2a2a2a;min-width:52px">${new Date().toTimeString().slice(0,8)}</span><span style="color:${c||'#aaa'}">${m}</span>`;document.getElementById('log').appendChild(d);}
+function bar(p){document.getElementById('bf').style.width=p+'%'}
+async function go(mode){
+  document.getElementById('st').style.display='block';
+  document.getElementById('log').innerHTML='';
+  bar(5);log('Connecting to Atlas...','#d97706');
+  try{
+    const r=await fetch('/api/report?mode='+mode);bar(70);
+    if(!r.ok)throw new Error(await r.text());
+    log('Data fetched','#16a34a');bar(90);
+    const html=await r.text();bar(100);log('Report ready — opening...','#16a34a');
+    const w=window.open('','_blank');w.document.open();w.document.write(html);w.document.close();
+  }catch(e){log('ERROR: '+e.message,'#dc2626');bar(0);}
+}
+</script>"""
+    return render_template_string(page_shell("Dashboard", body, "dashboard"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/admin")
+@login_required
+def admin_page():
+    if not current_user.is_admin:
+        return redirect(url_for("dashboard"))
+    requests_  = SubscriptionRequest.query.order_by(SubscriptionRequest.created_at.desc()).all()
+    users      = User.query.filter_by(is_admin=False).order_by(User.created_at.desc()).all()
+
+    def badge(status):
+        return f'<span class="badge badge-{status}">{status}</span>'
+
+    req_rows = "".join(f"""
+<tr>
+  <td>{r.name}</td>
+  <td style="font-family:'IBM Plex Mono',monospace">{r.discord}</td>
+  <td style="color:#666;max-width:280px;font-size:10px">{r.reason[:120]}{"..." if len(r.reason)>120 else ""}</td>
+  <td>{r.created_at.strftime("%b %d %H:%M") if r.created_at else "—"}</td>
+  <td>{badge(r.status)}</td>
+  <td>
+    <form method="POST" action="/admin/request/{r.id}" style="display:inline;gap:6px;display:flex">
+      <input name="username" placeholder="username" style="width:110px;padding:5px 8px;font-size:10px" {"disabled" if r.status!="pending" else ""}>
+      <button name="action" value="approve" class="btn-p" style="margin-top:0;padding:5px 12px;font-size:9px" {"disabled" if r.status!="pending" else ""}>Approve</button>
+      <button name="action" value="deny"    class="btn-p btn-danger" style="margin-top:0;padding:5px 12px;font-size:9px" {"disabled" if r.status!="pending" else ""}>Deny</button>
+    </form>
+  </td>
+</tr>""" for r in requests_) or '<tr><td colspan="6" style="color:#333;padding:20px 0">No requests yet</td></tr>'
+
+    user_rows = "".join(f"""
+<tr>
+  <td style="font-family:'IBM Plex Mono',monospace">{u.username}</td>
+  <td>{badge("approved" if u.approved else "pending")}</td>
+  <td>{u.created_at.strftime("%b %d %H:%M") if u.created_at else "—"}</td>
+  <td>
+    <form method="POST" action="/admin/user/{u.id}" style="display:flex;gap:6px">
+      <button name="action" value="toggle" class="btn-p btn-{"danger" if u.approved else "green"}" style="margin-top:0;padding:5px 12px;font-size:9px">{"Revoke" if u.approved else "Approve"}</button>
+      <button name="action" value="delete" class="btn-p btn-danger" style="margin-top:0;padding:5px 12px;font-size:9px">Delete</button>
+    </form>
+  </td>
+</tr>""" for u in users) or '<tr><td colspan="4" style="color:#333;padding:20px 0">No users yet</td></tr>'
+
+    body = f"""
+<div style="margin-bottom:32px;display:flex;justify-content:space-between;align-items:center">
+  <h1 style="font-size:28px;font-weight:700;color:#fff">Admin Panel</h1>
+  <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#333">{len(requests_)} requests · {len(users)} users</span>
+</div>
+<div class="card-wide" style="margin-bottom:24px">
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:16px">// Subscription Requests</div>
+  <table>
+    <thead><tr>
+      <th>Name</th><th>Discord</th><th>Reason</th><th>Date</th><th>Status</th><th>Actions</th>
+    </tr></thead>
+    <tbody>{req_rows}</tbody>
+  </table>
+</div>
+<div class="card-wide">
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:#444;margin-bottom:16px">// Users</div>
+  <table>
+    <thead><tr><th>Username</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+    <tbody>{user_rows}</tbody>
+  </table>
+</div>"""
+    return render_template_string(page_shell("Admin", body, "admin"))
+
+@app.route("/admin/request/<int:rid>", methods=["POST"])
+@login_required
+def admin_request_action(rid):
+    if not current_user.is_admin: return redirect(url_for("dashboard"))
+    r      = db.session.get(SubscriptionRequest, rid)
+    action = request.form.get("action")
+    if not r: return redirect(url_for("admin_page"))
+    if action == "approve":
+        username = request.form.get("username","").strip()
+        if not username:
+            return redirect(url_for("admin_page"))
+        pw_temp  = username + "_bl2024"
+        pw_hash  = bcrypt.hashpw(pw_temp.encode(), bcrypt.gensalt()).decode()
+        existing = User.query.filter_by(username=username).first()
+        if not existing:
+            db.session.add(User(username=username, password_h=pw_hash, approved=True))
+        else:
+            existing.approved = True
+        r.status = "approved"
+        db.session.commit()
+    elif action == "deny":
+        r.status = "denied"
+        db.session.commit()
+    return redirect(url_for("admin_page"))
+
+@app.route("/admin/user/<int:uid>", methods=["POST"])
+@login_required
+def admin_user_action(uid):
+    if not current_user.is_admin: return redirect(url_for("dashboard"))
+    u = db.session.get(User, uid)
+    if not u or u.is_admin: return redirect(url_for("admin_page"))
+    action = request.form.get("action")
+    if action == "toggle":   u.approved = not u.approved; db.session.commit()
+    elif action == "delete": db.session.delete(u); db.session.commit()
+    return redirect(url_for("admin_page"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REPORT API (login required)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/report")
+@login_required
+def api_report():
+    mode = request.args.get("mode","private")
+    try:
+        raw = fetch_all()
+    except Exception as e:
+        return f"Atlas error: {e}", 500
+
+    securities = raw.get("securities",[])
+    if not isinstance(securities,list): securities=[]
+    history = raw.get("history",{})
+    ob_raw  = raw.get("orderbook",[])
+
+    def sum_mcap(exch):
+        total = 0
+        for s in securities:
+            if s.get("hidden") or s["ticker"] in HIDDEN_TICKERS: continue
+            if (is_tse(s["ticker"]) and exch=="TSE") or (not is_tse(s["ticker"]) and exch=="NER"):
+                mc=s.get("market_cap"); p=s.get("market_price"); sh=s.get("total_shares")
+                if mc: total+=float(mc)
+                elif p and sh: total+=float(p)*float(sh)
+        return total if total>0 else None
+
+    ner_mcap_total = sum_mcap("NER"); tse_mcap_total = sum_mcap("TSE")
+    combined_mcap  = (ner_mcap_total+tse_mcap_total) if (ner_mcap_total and tse_mcap_total) else None
+    processed  = [process_sec(s, history, ner_mcap_total, tse_mcap_total) for s in securities]
+    name_map   = {s["ticker"]: s.get("full_name", s["ticker"]) for s in securities}
+
+    def by_cat(cat):
+        return [p for s,p in zip(securities,processed)
+                if classify(s)==cat and s["ticker"] not in HIDDEN_TICKERS and not s.get("hidden")]
+
+    stocks=by_cat("Stock"); etfs=by_cat("ETF"); bonds=by_cat("Bond"); commodities=by_cat("Commodity")
+    ner_indices, tse_indices = compute_indices(securities)
+
+    orderbooks = []
+    if isinstance(ob_raw,list):
+        for book in ob_raw: orderbooks.append(process_ob(book,name_map))
+    elif isinstance(ob_raw,dict):
+        for ticker,book in ob_raw.items():
+            if isinstance(book,dict):
+                book["ticker"]=ticker; orderbooks.append(process_ob(book,name_map))
+    orderbooks.sort(key=lambda x:(not x["bids"] and not x["asks"],x["ticker"]))
+
+    visible = [s for s in securities if not s.get("hidden") and s["ticker"] not in HIDDEN_TICKERS]
+    total   = len(visible); frozen = len([s for s in visible if s.get("frozen")])
+    liqs    = [p["liq"]  for p in processed if p["liq"]  is not None]
+    vols    = [p["vol7"] for p in processed if p["vol7"] is not None]
+
+    def idx_val(indices, ticker):
+        i = next((x for x in indices if x["ticker"]==ticker),None)
+        return i["value"] if i and i["value"] is not None else "—"
+
+    now = datetime.now(timezone.utc)
+    ctx = dict(
+        date_str=now.strftime("%b. %d, %Y"), time_str=now.strftime("%H:%M:%S"),
+        stocks=stocks, etfs=etfs, bonds=bonds, commodities=commodities,
+        ner_indices=ner_indices, tse_indices=tse_indices, orderbooks=orderbooks,
+        total_count=total, frozen_count=frozen, active_count=total-frozen,
+        avg_liq=fmts(sum(liqs)/len(liqs)) if liqs else "—",
+        avg_vol=fmts(sum(vols)/len(vols)) if vols else "—",
+        ner_comp=idx_val(ner_indices,"B:COMP"), ner_stk=idx_val(ner_indices,"B:STK"),
+        tse_comp=idx_val(tse_indices,"T:COMP"), tse_stk=idx_val(tse_indices,"T:STK"),
+        ner_mcap_total=ner_mcap_total, tse_mcap_total=tse_mcap_total, combined_mcap=combined_mcap,
+    )
+    if mode=="public":   html = build_public(ctx)
+    elif mode=="weekly": html = build_weekly(ctx)
+    else:                html = build_private(ctx)
+    return html, 200, {"Content-Type":"text/html"}
+
+@app.route("/health")
+def health():
+    return {"status":"ok"}
+
 if __name__=="__main__":
+    init_db()
     port = int(os.environ.get("PORT",5000))
     app.run(host="0.0.0.0",port=port,debug=False)
