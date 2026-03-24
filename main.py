@@ -16,7 +16,7 @@ login_manager.login_view = "login_page"
 login_manager.login_message = ""
 
 ATLAS_URL  = os.environ.get("ATLAS_URL", "").rstrip("/")
-ATLAS_KEY  = os.environ.get("ATLAS_KEY", "atl_Bloom_mkt_reports_MKZaifOWZHoAlDSWYWBaGCtUfFxx5Fvd")
+ATLAS_KEY  = os.environ.get("ATLAS_KEY", "")
 ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "changeme")
 
